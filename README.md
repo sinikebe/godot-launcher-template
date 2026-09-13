@@ -212,6 +212,7 @@ in the pull request body, and you copy them across by hand.
 | `docs/TROUBLESHOOTING.md` | Symptoms, and what each one means |
 | `docs/UPDATES.md` | How updating actually works, in depth |
 | `build_version.gd`, `launcher_config.tres`, `project.godot` | The demo harness |
+| `LICENSE` | MIT. Copies also live in `addons/launcher/` and `ci/`, so the terms travel with the synced code |
 
 ## Does this need anything from me?
 
@@ -235,3 +236,34 @@ its own releases, its own Android package id and its own signing key.
 
 Godot **4.7**, no C#, no addons. Android builds need the SDK in CI (the supplied
 workflow sets it up) and a signing keystore for real self-update.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copy it into a game, ship the result commercially,
+relicense your own game however you like.
+
+Because the sync replaces `addons/launcher/` and `ci/` wholesale, each carries
+its own copy of the licence, so the terms arrive with the code rather than being
+left behind in a repository the game never sees. Any sync that actually runs
+restores them; one that finds the template unchanged exits early and does not,
+so do not delete them.
+
+A game made from this template inherits that root `LICENSE`, which covers the
+launcher and not the game. Replace it with your own. `ci/new_game.sh` says so
+when it runs, and takes `--delete-licence` if you would rather start from
+nothing — it will not decide for you, because no rule for telling "still the
+template's" from "the developer already replaced this" is right in every case,
+and guessing wrong deletes somebody's licence.
+
+That flag applies **only while setting a game up**. Run the script in a
+repository that has already been set up, or that was never a template copy at
+all, and it deletes nothing and tells you to `rm LICENSE` yourself — a setup
+script should not be able to remove a licence from a repository it did not
+create.
+
+MIT asks that the notice ship with substantial portions of the software, and a
+built `.pck` or APK contains none of these files — the export presets ship an
+empty `include_filter`, which includes only what Godot imports as a resource,
+and a licence is not one. If you distribute builds, put the attribution
+somewhere a player can reach: a credits screen, or a licence file beside the
+executable.
