@@ -283,6 +283,10 @@ func _refresh_update_ui() -> void:
 	_progress.visible = UpdateService.state == UpdateService.State.DOWNLOADING
 	_update_button.disabled = busy
 
+	# A fresh install that has never reached the network has no notes to show,
+	# and a button that only ever opens an empty dialog is worse than no button.
+	_notes_button.visible = not UpdateService.full_changelog().is_empty()
+
 	match UpdateService.state:
 		UpdateService.State.BINARY_READY:
 			_update_button.text = "Update app"
