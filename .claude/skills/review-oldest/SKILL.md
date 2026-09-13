@@ -18,12 +18,12 @@ oldest open issue
       ├─ gate 1: is the problem real?  ──── no ──→ close, explain why
       │            (adversarial)
       ↓ yes
-   fix it, commit, push
+   branch <N>-<slug>, fix, push, open PR "Closes #N"
       │
       ├─ gate 2: is it actually fixed? ──── no ──→ iterate, or report and stop
       │            (adversarial)
       ↓ yes
-   close, linking the commit
+   merge to main — the issue closes itself
 ```
 
 ## 1. Take the oldest open issue
@@ -115,9 +115,29 @@ shellcheck --severity=warning ci/*.sh                    # if installed
 Say which of these you actually ran. If a tool is missing from the environment,
 say that rather than implying the check passed.
 
-Commit on the session's designated branch and push. **The fix must be pushed
-before the issue is closed** — an issue closed against a change that exists
-only in a local working tree is a lie in the tracker.
+### Branch and PR
+
+Branch off `main`, named the way GitHub names a branch created from an issue —
+the number, then the slugified title:
+
+```bash
+git fetch origin main
+git checkout -B "<N>-<slugified-issue-title>" origin/main
+```
+
+Commit, push, and open a pull request whose body contains the closing keyword:
+
+```
+mcp__github__create_pull_request  base: main, head: <N>-<slug>,
+                                  title: <what changed, not the issue title>,
+                                  body: "Closes #<N>" + what changed and why
+```
+
+The branch name is convention — it makes the link obvious to a human reading
+the branch list. `Closes #<N>` is what actually does the work: it puts the PR
+in the issue's timeline and closes the issue automatically when the PR merges.
+
+Then `mcp__Claude_Code_Remote__subscribe_pr_activity` and drive it to green.
 
 ## 5. Gate 2 — is it actually fixed?
 
@@ -147,18 +167,28 @@ failing — repeated failures usually mean the diagnosis is wrong, not the patch
 **FIXED WITH NEW PROBLEMS** → fix those too if they are in scope; if not, file
 them and say so in the closing comment.
 
-## 6. Close
+## 6. Merge
+
+Merging the PR is what closes the issue — `Closes #<N>` does it automatically,
+so do **not** close the issue by hand on this path.
 
 ```
-mcp__github__add_issue_comment  issue_number: N, body: <what changed, and the proof>
-mcp__github__issue_write        method: update, issue_number: N, state: closed,
-                                state_reason: completed
+mcp__github__merge_pull_request   pullNumber: <PR>
+mcp__github__issue_read           issue_number: N      # confirm it actually closed
 ```
 
-Comment first: what the root cause turned out to be, what changed, the commit
-link, and how it was verified. If the adversarial review found something you
-chose not to address, say so here rather than leaving it for someone to
+Comment on the PR before merging: what the root cause turned out to be, what
+changed, and how it was verified. If the adversarial review found something you
+chose not to address, say so there rather than leaving it for someone to
 discover.
+
+If the merge lands but the issue is still open — a typo in the keyword, a PR
+retargeted at another base — close it by hand with `state_reason: completed`
+and link the merge commit. Never leave a merged fix with an open issue behind
+it.
+
+Leave nothing on a branch. Once merged, the work lives on `main` and the
+feature branch is deleted.
 
 Every comment ends with the attribution footer:
 
@@ -175,6 +205,8 @@ and what is now the oldest open issue.
 
 - **Never close an issue a gate did not clear.** No verdict, no close. This is
   the one rule the skill exists to enforce.
+- **Never leave the work on a branch.** A run ends with the fix merged to `main`
+  and the branch gone, or with an explicit report of what blocked the merge.
 - **Never let the fixer review the fix.** Separate agent, every time.
 - **Never treat reasoning as evidence** where a command could settle it. This
   repo's findings are mostly testable in a scratch copy — use one.
