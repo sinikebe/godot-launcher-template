@@ -154,6 +154,13 @@ The next build picks them up automatically.
 Editing those two is the most common mistake: it works until the next sync
 quietly reverts it. Everything you legitimately need is in the config.
 
+Each of them carries a copy of the launcher's MIT `LICENSE`, which is how the
+terms reach you at all — the sync only ever copies those two directories. Leave
+those copies where they are. Your own game's licence goes in the repository
+root, replacing the template's — `ci/new_game.sh` prompts you and leaves the
+file for you to overwrite, or deletes it if you pass `--delete-licence` during
+setup. Afterwards it will not delete it for you — `rm LICENSE` yourself.
+
 ## Adding your game to the Play button
 
 In `launcher_config.tres`, set **`play_scene`** to your first scene. Until then
