@@ -16,7 +16,29 @@ extends Node
 const USER_AGENT := "GodotLauncher/1.0 (+https://github.com/sinikebe/godot-launcher-template)"
 ## Last fetched changelog, so patch notes stay readable with no network.
 const CHANGELOG_CACHE_PATH := "user://changelog.json"
-const REQUEST_TIMEOUT := 30.0
+## HTTPRequest.timeout is total wall-clock from request(), not an idle timeout:
+## it fires while bytes are still arriving. So the manifest and the artifacts
+## cannot share one value -- a bound sized for a few hundred bytes of JSON
+## cancels a download that is progressing perfectly well.
+##
+## The manifest is small and fetched on every launch, so it should give up fast.
+const MANIFEST_TIMEOUT := 30.0
+
+## Artifacts are tens to hundreds of megabytes -- the demo's own release is a
+## 50 MB APK and a 104 MB EXE. At the old shared 30 s those needed 14.0 and
+## 29.1 Mbps respectively just to finish, and anything slower failed outright
+## with the partial file deleted and no resume. Half an hour brings that down to
+## 0.23 and 0.49 Mbps.
+##
+## That is not "every connection": a 0.2 Mbps link -- congested cell, EDGE --
+## still cannot finish either inside half an hour. It is the point past which
+## the wait is the problem rather than the deadline, and where a cancel
+## (issue #25) is the better answer than a larger number.
+##
+## Not 0 (unlimited): a peer that accepts and then goes silent would hang the
+## download forever. `timeout` does not bound that case well anyway -- it waits
+## on the peer rather than the clock in threaded mode. See issue #33.
+const DOWNLOAD_TIMEOUT := 1800.0
 const SUPPORTED_SCHEMA := 1
 
 enum State {
@@ -324,7 +346,10 @@ func _matches_pending_checksum(path: String) -> bool:
 ## file instead of being kept in memory.
 func _request(url: String, download_to: String) -> Dictionary:
 	var http := HTTPRequest.new()
-	http.timeout = REQUEST_TIMEOUT
+	# download_to is set only for artifacts, so it is also the signal for which
+	# budget applies -- the one call site that streams to a file is the one that
+	# needs the long one.
+	http.timeout = DOWNLOAD_TIMEOUT if not download_to.is_empty() else MANIFEST_TIMEOUT
 	http.use_threads = true
 	# GitHub serves release assets from a redirect to a signed CDN URL.
 	http.max_redirects = 8
@@ -376,6 +401,12 @@ func _describe_transfer_failure(outcome: int) -> String:
 			return "Could not reach GitHub. Check your connection."
 		HTTPRequest.RESULT_TIMEOUT:
 			return "The connection timed out."
+		# A peer that stalls and then drops surfaces here rather than as
+		# RESULT_TIMEOUT once the deadline is long enough not to fire first --
+		# same cause as far as the player is concerned, so say the same thing
+		# instead of falling through to a bare error number.
+		HTTPRequest.RESULT_CONNECTION_ERROR:
+			return "The connection dropped part-way through. Try again."
 		HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
 			return "Secure connection failed."
 		HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN, HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR:
