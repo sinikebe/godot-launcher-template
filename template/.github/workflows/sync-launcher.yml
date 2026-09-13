@@ -124,8 +124,15 @@ jobs:
           fi
 
           TITLE="Sync launcher @ ${{ steps.sync.outputs.short_commit }}"
-          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
-            gh pr edit "$BRANCH" --title "$TITLE" --body "$BODY"
+
+          # Match only OPEN pull requests. `gh pr view <branch>` also resolves
+          # merged and closed ones, so once the first sync PR was merged every
+          # later run would quietly re-title that dead PR and never open a new
+          # one -- leaving the branch pushed with nothing to review.
+          EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+
+          if [[ -n "$EXISTING" ]]; then
+            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
           elif ! gh pr create --head "$BRANCH" --base "$BASE" --title "$TITLE" --body "$BODY"; then
             # Opening a PR needs "Allow GitHub Actions to create and approve pull
             # requests" (Settings -> Actions -> General), which is off by default.
