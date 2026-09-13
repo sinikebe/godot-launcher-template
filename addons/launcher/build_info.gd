@@ -12,6 +12,9 @@ extends Node
 ## so it always describes the APK/EXE itself and never a pack shadowing it.
 const BuildVersion := preload("res://build_version.gd")
 
+## The launcher's own version, independent of the game's.
+const LauncherVersion := preload("res://addons/launcher/launcher_version.gd")
+
 ## Project setting pointing at this game's LauncherConfig.
 const CONFIG_PATH_SETTING := "launcher/config_path"
 const DEFAULT_CONFIG_PATH := "res://launcher_config.tres"
@@ -176,9 +179,18 @@ func is_android() -> bool:
 	return OS.get_name() == "Android"
 
 
-## Human-readable stamp for the corner of the launcher.
+## Human-readable stamp for the corner of the launcher: the game on the first
+## line, the launcher it is running on the second.
 func display_version() -> String:
 	var text := "v%s  ·  bin %d  ·  content %d" % [version_name, binary_version, content_version]
 	if not commit.is_empty() and commit != "local":
 		text += "  ·  %s" % commit
+	return text + "\n" + launcher_version()
+
+
+## "launcher <semver> · <template commit>", for bug reports.
+func launcher_version() -> String:
+	var text := "launcher %s" % LauncherVersion.VERSION
+	if not LauncherVersion.COMMIT.is_empty():
+		text += "  ·  %s" % LauncherVersion.COMMIT
 	return text

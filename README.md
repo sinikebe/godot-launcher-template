@@ -157,6 +157,13 @@ func _ready() -> void:
 `play_scene` is what Play loads. Leave it empty and Play says so instead of
 failing silently; connect `play_requested` to take the action over entirely.
 
+### Version stamp
+
+The corner of the launcher shows two lines: the game's version on top, and the
+launcher's underneath — `launcher 1.0.0 · 0a0d113`. The semver comes from the
+template, the short hash is the template commit the game synced. It is the first
+thing worth asking for in a launcher bug report.
+
 ### Look
 
 `theme_override` replaces the bundled theme wholesale. Leave it empty to keep
@@ -168,10 +175,13 @@ the default dark-green one.
 `addons/launcher/` and `ci/` from this repo, imports and boots the project to
 prove it still loads, and opens a pull request if anything changed.
 
-It opens a PR rather than pushing, because merging `main` in a consuming game
-publishes a release — a launcher change should not reach players unlooked-at.
-To make it fully hands-off, turn on auto-merge for that PR in the game's repo
-settings.
+**It opens a pull request and stops there. It never merges.** Merging `main` in
+a consuming game publishes a release to players, so deciding that a launcher
+change is safe to ship is the game developer's call, not the robot's. The
+workflow contains no merge step, and nothing in this template asks you to turn
+on auto-merge.
+
+Review the diff, then merge it yourself.
 
 The synced revision is recorded in `addons/launcher/.launcher-sync.json`.
 
@@ -189,6 +199,7 @@ in the pull request body, and you copy them across by hand.
 |---|---|
 | `addons/launcher/` | **The launcher.** Synced into games; never edit downstream |
 | `addons/launcher/launcher_config.gd` | Every knob, documented inline |
+| `addons/launcher/launcher_version.gd` | The launcher's own version; bump `VERSION` when it changes meaningfully |
 | `ci/` | Build and release scripts. Also synced |
 | `template/` | Starter files a game copies **once**: workflows and export presets |
 | `docs/UPDATES.md` | How updating actually works, and how to sign Android builds |

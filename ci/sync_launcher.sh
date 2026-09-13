@@ -57,6 +57,24 @@ for path in "${OWNED_PATHS[@]}"; do
 	cp -R "$WORK/template/$path" "$ROOT/$path"
 done
 
+# Stamp the launcher's own version so the game can report, on screen, exactly
+# which revision of the launcher it is running. A .json record is not enough:
+# dotfiles are not exported into the shipped pack, and a GDScript constant is.
+python3 - "$SHORT_SHA" "$TEMPLATE_REPO" <<'PYEOF'
+import datetime, pathlib, re, sys
+
+short_sha, repo = sys.argv[1], sys.argv[2]
+path = pathlib.Path("addons/launcher/launcher_version.gd")
+text = path.read_text(encoding="utf-8")
+stamped = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+# VERSION is the template's to declare and travels with the copied file.
+for const, value in (("COMMIT", short_sha), ("SYNCED_AT", stamped), ("SOURCE", repo)):
+    text = re.sub(rf'^const {const}: String = ".*"$',
+                  f'const {const}: String = "{value}"', text, count=1, flags=re.M)
+path.write_text(text, encoding="utf-8")
+PYEOF
+
 python3 - "$RECORD" "$TEMPLATE_REPO" "$TEMPLATE_REF" "$SHA" "$SUBJECT" <<'PY'
 import datetime, json, sys
 
