@@ -1,5 +1,5 @@
 {
   "_comment": "Bump binary_version whenever a change requires a NEW APK/EXE rather than a content-only update: Godot engine version, export template, permissions, native plugins, icons, or anything outside res:// content. Everything else ships as a content pack. version_name is cosmetic.",
-  "version_name": "0.2.0",
-  "binary_version": 2
+  "version_name": "0.1.0",
+  "binary_version": 1
 }

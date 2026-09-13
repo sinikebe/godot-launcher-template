@@ -58,7 +58,7 @@ and the rest is a demo harness for developing it.
    cp -R /tmp/lt/addons/launcher addons/launcher
    cp -R /tmp/lt/ci ci
    cp /tmp/lt/build_version.gd build_version.gd
-   cp /tmp/lt/template/version.json version.json
+   cp /tmp/lt/version.json version.json
    cp -R /tmp/lt/template/.github/workflows/. .github/workflows/
    ```
 
@@ -173,7 +173,7 @@ The synced revision is recorded in `addons/launcher/.launcher-sync.json`.
 | `addons/launcher/` | **The launcher.** Synced into games; never edit downstream |
 | `addons/launcher/launcher_config.gd` | Every knob, documented inline |
 | `ci/` | Build and release scripts. Also synced |
-| `template/` | Starter files a game copies **once**: workflows, export presets, `version.json` |
+| `template/` | Starter files a game copies **once**: workflows and export presets |
 | `docs/UPDATES.md` | How updating actually works, and how to sign Android builds |
 | `build_version.gd`, `launcher_config.tres`, `project.godot` | The demo harness |
 

@@ -86,8 +86,15 @@ EOF
 # installed one, so versionCode tracks content_version -- which moves on every
 # release -- rather than binary_version, which only moves when a new APK is
 # genuinely required. Any published APK can therefore install over any older one.
-sed -i -E "s|^version/code=.*|version/code=${CONTENT_VERSION}|" export_presets.cfg
-sed -i -E "s|^version/name=.*|version/name=\"${VERSION_NAME}\"|" export_presets.cfg
+#
+# Optional: a project with no export presets yet (or no Android target) still
+# gets a valid build stamp, which is all the launcher itself needs.
+if [[ -f export_presets.cfg ]]; then
+	sed -i -E "s|^version/code=.*|version/code=${CONTENT_VERSION}|" export_presets.cfg
+	sed -i -E "s|^version/name=.*|version/name=\"${VERSION_NAME}\"|" export_presets.cfg
+else
+	echo "No export_presets.cfg; skipping the Android version stamp."
+fi
 
 echo "version_name=${VERSION_NAME}"
 echo "binary_version=${BINARY_VERSION}"
