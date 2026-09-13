@@ -114,6 +114,14 @@ jobs:
           The project was imported and booted headless on this branch before the PR was opened.
           Merging releases it to players, so skim the diff first."
 
+          if [[ -n "${{ steps.sync.outputs.workflow_drift }}" ]]; then
+            BODY="$BODY
+
+          ---
+          **These workflows also changed upstream and must be copied by hand:** \`${{ steps.sync.outputs.workflow_drift }}\`
+          A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves them alone."
+          fi
+
           TITLE="Sync launcher @ ${{ steps.sync.outputs.short_commit }}"
           if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
             gh pr edit "$BRANCH" --title "$TITLE" --body "$BODY"

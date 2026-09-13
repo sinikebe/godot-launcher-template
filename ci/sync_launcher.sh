@@ -74,6 +74,22 @@ with open(record, "w", encoding="utf-8") as fh:
     fh.write("\n")
 PY
 
+# GITHUB_TOKEN is not allowed to write .github/workflows/, so the starter
+# workflows cannot be synced automatically. Detect when they have drifted and
+# say so, rather than letting a game silently run year-old CI.
+WORKFLOW_DRIFT=""
+for candidate in "$WORK/template/template/.github/workflows/"*.yml; do
+	[[ -e "$candidate" ]] || continue
+	name="$(basename "$candidate")"
+	mine=".github/workflows/${name}"
+	if [[ -f "$mine" ]] && ! diff -q "$candidate" "$mine" >/dev/null 2>&1; then
+		WORKFLOW_DRIFT+="${name} "
+	fi
+done
+if [[ -n "$WORKFLOW_DRIFT" ]]; then
+	echo "Workflows differ from the template: ${WORKFLOW_DRIFT}(copy them by hand)"
+fi
+
 echo "Synced launcher to ${SHORT_SHA} — ${SUBJECT}"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
@@ -82,5 +98,6 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
 		echo "short_commit=${SHORT_SHA}"
 		echo "subject=${SUBJECT}"
 		echo "previous=${PREVIOUS_SHA}"
+		echo "workflow_drift=${WORKFLOW_DRIFT}"
 	} >> "$GITHUB_OUTPUT"
 fi

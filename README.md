@@ -162,6 +162,10 @@ settings.
 
 The synced revision is recorded in `addons/launcher/.launcher-sync.json`.
 
+A token scoped to `contents` is not allowed to write `.github/workflows/`, so the
+starter workflows are **not** synced. When they change upstream the sync says so
+in the pull request body, and you copy them across by hand.
+
 > A pull request opened with `GITHUB_TOKEN` does not trigger other workflows, so
 > the sync job runs the import-and-boot check itself before opening the PR. If
 > you want the game's full CI on it as well, give the workflow a PAT instead.
