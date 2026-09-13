@@ -25,14 +25,19 @@ const CHANGELOG_CACHE_PATH := "user://changelog.json"
 const MANIFEST_TIMEOUT := 30.0
 
 ## Artifacts are tens to hundreds of megabytes -- the demo's own release is a
-## 50 MB APK and a 104 MB EXE. At the old shared 30 s those needed 14 and
-## 29 Mbps respectively just to finish, and anything slower failed outright with
-## the partial file deleted and no resume. Half an hour covers 104 MB at about
-## 0.5 Mbps, which is slower than any connection that could complete at all.
+## 50 MB APK and a 104 MB EXE. At the old shared 30 s those needed 14.0 and
+## 29.1 Mbps respectively just to finish, and anything slower failed outright
+## with the partial file deleted and no resume. Half an hour brings that down to
+## 0.23 and 0.49 Mbps.
+##
+## That is not "every connection": a 0.2 Mbps link -- congested cell, EDGE --
+## still cannot finish either inside half an hour. It is the point past which
+## the wait is the problem rather than the deadline, and where a cancel
+## (issue #25) is the better answer than a larger number.
 ##
 ## Not 0 (unlimited): a peer that accepts and then goes silent would hang the
-## download forever. Note that `timeout` does not bound that case well anyway --
-## see the stall-detection issue linked from the commit that added this.
+## download forever. `timeout` does not bound that case well anyway -- it waits
+## on the peer rather than the clock in threaded mode. See issue #33.
 const DOWNLOAD_TIMEOUT := 1800.0
 const SUPPORTED_SCHEMA := 1
 
@@ -396,6 +401,12 @@ func _describe_transfer_failure(outcome: int) -> String:
 			return "Could not reach GitHub. Check your connection."
 		HTTPRequest.RESULT_TIMEOUT:
 			return "The connection timed out."
+		# A peer that stalls and then drops surfaces here rather than as
+		# RESULT_TIMEOUT once the deadline is long enough not to fire first --
+		# same cause as far as the player is concerned, so say the same thing
+		# instead of falling through to a bare error number.
+		HTTPRequest.RESULT_CONNECTION_ERROR:
+			return "The connection dropped part-way through. Try again."
 		HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
 			return "Secure connection failed."
 		HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN, HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR:
