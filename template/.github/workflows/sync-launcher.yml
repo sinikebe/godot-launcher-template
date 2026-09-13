@@ -1,0 +1,121 @@
+name: Sync launcher
+
+# Pulls launcher updates from the template repository into this game.
+#
+# Opens a pull request rather than pushing to main: merging main triggers a
+# release, and a launcher change should not reach players without someone
+# looking at it. Merging the PR is the only manual step.
+
+on:
+  schedule:
+    # Daily. Adjust freely -- the job is a no-op when nothing has changed.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Template ref to sync from"
+        default: main
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-launcher
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: "4.7"
+  GODOT_RELEASE: stable
+  LAUNCHER_TEMPLATE_REPO: sinikebe/godot-launcher-template
+  LAUNCHER_TEMPLATE_REF: ${{ inputs.ref || 'main' }}
+
+jobs:
+  sync:
+    name: Sync from template
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Sync launcher
+        id: sync
+        # From a copy: the sync overwrites ci/sync_launcher.sh while it runs.
+        run: |
+          cp ci/sync_launcher.sh "${RUNNER_TEMP}/sync_launcher.sh"
+          bash "${RUNNER_TEMP}/sync_launcher.sh"
+
+      - name: Anything to do?
+        id: diff
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Launcher already up to date."
+          fi
+
+      - name: Cache Godot
+        if: steps.diff.outputs.changed == 'true'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux
+
+      - name: Install Godot
+        if: steps.diff.outputs.changed == 'true'
+        run: bash ci/install_godot.sh
+
+      - name: Check the project still loads
+        # A pull request opened by GITHUB_TOKEN does not trigger other workflows,
+        # so the PR would otherwise arrive with no checks at all. Import and boot
+        # the project here instead: that catches the realistic breakage, a
+        # launcher change the game's config or autoloads no longer satisfy.
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          bash ci/collect_changes.sh || true
+          bash ci/prepare_build.sh
+          ~/godot/godot --headless --path . --import
+          ~/godot/godot --headless --path . --quit-after 120
+          # prepare_build.sh stamps generated values; keep them out of the PR.
+          git checkout -- build_version.gd export_presets.cfg 2>/dev/null || true
+          git clean -fd build 2>/dev/null || true
+
+      - name: Open pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: launcher-sync
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add -A
+          git commit -m "Sync launcher from template @ ${{ steps.sync.outputs.short_commit }}
+
+          ${{ steps.sync.outputs.subject }}
+
+          Source: ${LAUNCHER_TEMPLATE_REPO}@${{ steps.sync.outputs.commit }}"
+          git push -f origin "$BRANCH"
+
+          BODY="Pulls \`addons/launcher/\` and \`ci/\` from [\`${LAUNCHER_TEMPLATE_REPO}\`](https://github.com/${LAUNCHER_TEMPLATE_REPO}) at \`${{ steps.sync.outputs.short_commit }}\`.
+
+          > ${{ steps.sync.outputs.subject }}
+
+          The project was imported and booted headless on this branch before the PR was opened.
+          Merging releases it to players, so skim the diff first."
+
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            gh pr edit "$BRANCH" --title "Sync launcher @ ${{ steps.sync.outputs.short_commit }}" --body "$BODY"
+          else
+            gh pr create --head "$BRANCH" --base "${{ github.event.repository.default_branch }}" \
+              --title "Sync launcher @ ${{ steps.sync.outputs.short_commit }}" --body "$BODY"
+          fi

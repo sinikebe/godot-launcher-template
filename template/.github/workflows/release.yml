@@ -1,0 +1,178 @@
+name: Release
+
+# Builds the Android APK, the Windows executable and the per-platform content
+# packs, then publishes them as a GitHub release together with the manifest the
+# in-app updater polls.
+#
+# Runs only on merges to main and on manual dispatch. Pull requests are handled
+# by ci.yml, which builds the same way but never sees a secret and never
+# publishes -- so a fork PR cannot reach the signing key.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only by default; the publish job opts into the one extra scope it needs.
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: "4.7"
+  GODOT_RELEASE: stable
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its assets
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          # content_version is the commit count, so the full history is required.
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools build-tools;34.0.0"
+
+      - name: Cache Godot editor and export templates
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux
+
+      - name: Install Godot
+        run: bash ci/install_godot.sh
+
+      - name: Point Godot at the Android SDK
+        # Godot reads these from its editor settings only -- it has no env-var
+        # fallback -- and refuses to export for Android without them.
+        run: |
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-${GODOT_VERSION}.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "${ANDROID_SDK_ROOT}"
+          export/android/java_sdk_path = "${JAVA_HOME}"
+          EOF
+
+      - name: Collect patch notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Must run before the version stamp: prepare_build.sh bakes these notes
+        # into the binary so the app can show its own changelog with no network.
+        run: bash ci/collect_changes.sh
+
+      - name: Stamp build version
+        id: version
+        run: bash ci/prepare_build.sh
+
+      - name: Restore signing keystore cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/biogenic-keystore-cache
+          key: biogenic-debug-keystore-v1
+
+      - name: Resolve signing key
+        id: keystore
+        env:
+          # Absent on a repo with no signing secrets configured; setup_keystore.sh
+          # then falls back to a cached debug key and says so in the job summary.
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_CACHE_DIR: ${{ runner.temp }}/biogenic-keystore-cache
+        run: bash ci/setup_keystore.sh
+
+      - name: Import project
+        run: ~/godot/godot --headless --path . --import
+
+      - name: Export Android APK
+        env:
+          # Godot reads the keystore from these; the passwords come straight from
+          # the secrets context, which Actions masks in logs. They are never
+          # written to a file, an output, or $GITHUB_ENV.
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ steps.keystore.outputs.path }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: ${{ secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
+        run: |
+          mkdir -p build/android
+          ~/godot/godot --headless --path . --export-release "Android" build/android/biogenic.apk
+          # Godot leaves an APK Signature Scheme v4 sidecar next to the APK that
+          # is not part of the distribution.
+          rm -f build/android/biogenic.apk.idsig
+
+      - name: Verify APK signature
+        run: |
+          BUILD_TOOLS="$(find "${ANDROID_SDK_ROOT}/build-tools" -maxdepth 1 -type d -name '3*' | sort -V | tail -1)"
+          "${BUILD_TOOLS}/apksigner" verify --print-certs build/android/biogenic.apk
+
+      - name: Export Windows executable
+        run: |
+          mkdir -p build/windows
+          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/Biogenic.exe
+
+      - name: Export content packs
+        # One pack per platform: texture compression differs between mobile and
+        # desktop, so a single shared pack would ship the wrong format to one of them.
+        run: |
+          mkdir -p build/content
+          ~/godot/godot --headless --path . --export-pack "Android" build/content/content-android.pck
+          ~/godot/godot --headless --path . --export-pack "Windows Desktop" build/content/content-windows.pck
+
+      - name: Assemble release directory
+        run: |
+          mkdir -p build/release
+          cp build/android/biogenic.apk build/release/
+          cp build/windows/Biogenic.exe build/release/
+          cp build/content/content-android.pck build/release/
+          cp build/content/content-windows.pck build/release/
+
+      - name: Build update manifest
+        run: |
+          python3 ci/make_manifest.py \
+            --changes-file build/notes/changes.json \
+            --previous-manifest build/notes/previous.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --version-name "${{ steps.version.outputs.version_name }}" \
+            --binary-version "${{ steps.version.outputs.binary_version }}" \
+            --content-version "${{ steps.version.outputs.content_version }}" \
+            --commit "${{ steps.version.outputs.commit }}" \
+            --tag "${{ steps.version.outputs.tag }}" \
+            --artifact "binary:android:build/release/biogenic.apk" \
+            --artifact "binary:windows:build/release/Biogenic.exe" \
+            --artifact "content:android:build/release/content-android.pck" \
+            --artifact "content:windows:build/release/content-windows.pck" \
+            --out build/release/manifest.json
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          BINARY_VERSION: ${{ steps.version.outputs.binary_version }}
+          CONTENT_VERSION: ${{ steps.version.outputs.content_version }}
+          SIGNING_KIND: ${{ steps.keystore.outputs.kind }}
+        run: bash ci/publish_release.sh
+
+      - name: Shred the signing key
+        # Runners are ephemeral, but the keystore is removed explicitly so it
+        # cannot survive into any later step of this job.
+        if: always()
+        run: rm -rf "${RUNNER_TEMP}/biogenic-signing"

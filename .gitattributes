@@ -1,0 +1,25 @@
+# Normalise to LF in the repo. Without this, shell scripts authored on Windows
+# reach the Linux runners with CRLF and fail with "\r: command not found".
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.gd   text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+*.cfg  text eol=lf
+*.yml  text eol=lf
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+
+*.png  binary
+*.jpg  binary
+*.webp binary
+*.ogg  binary
+*.wav  binary
+*.ttf  binary
+*.otf  binary
+*.pck  binary
+*.apk  binary
+*.exe  binary
+*.keystore binary

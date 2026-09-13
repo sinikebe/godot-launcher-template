@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="LauncherConfig" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/launcher/launcher_config.gd" id="1_config"]
+[ext_resource type="Shader" path="res://addons/launcher/shaders/organic_background.gdshader" id="2_shader"]
+
+[resource]
+script = ExtResource("1_config")
+game_title = "LAUNCHER"
+tagline = "template demo · build {build}"
+background_shader = ExtResource("2_shader")
+background_color = Color(0.023, 0.055, 0.05, 1)
+background_stretch = 3
+background_dim = 0.0
+edge_margin = 48
+title_h_align = 0
+title_v_align = 0
+menu_h_align = 1
+menu_v_align = 1
+menu_width = 300
+menu_orientation = 0
+menu_separation = 12
+show_play = true
+play_text = "Play"
+show_quit = true
+quit_text = "Quit"
+extra_buttons = PackedStringArray("Settings")
+play_scene = ""
+update_repo = ""
+check_on_launch = true
+show_update_bar = true

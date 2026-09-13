@@ -1,0 +1,60 @@
+name: CI
+
+# Validates the launcher on its own, so a change cannot be published to
+# consuming games in a state that will not even load.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7"
+  GODOT_RELEASE: stable
+
+jobs:
+  check:
+    name: Import and boot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Cache Godot
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux
+
+      - name: Install Godot
+        run: bash ci/install_godot.sh
+
+      - name: Stamp build version
+        run: |
+          bash ci/collect_changes.sh || true
+          bash ci/prepare_build.sh
+
+      - name: Import project
+        run: ~/godot/godot --headless --path . --import
+
+      - name: Boot the launcher
+        # Loads both autoloads and the launcher scene. Any parse error, bad
+        # preload or broken scene reference fails the job here.
+        run: ~/godot/godot --headless --path . --quit-after 180
+
+      - name: Check the shell scripts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=warning ci/*.sh

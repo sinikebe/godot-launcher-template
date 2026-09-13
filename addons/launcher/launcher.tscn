@@ -1,0 +1,235 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/launcher/launcher.gd" id="1_launcher"]
+[ext_resource type="Theme" path="res://addons/launcher/theme/launcher_theme.tres" id="2_theme"]
+
+[node name="Launcher" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_launcher")
+
+[node name="BackgroundColor" type="ColorRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.023, 0.055, 0.05, 1)
+
+[node name="BackgroundShader" type="ColorRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="BackgroundTexture" type="TextureRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="BackgroundDim" type="ColorRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0)
+
+[node name="TitleBlock" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 0
+offset_left = 48.0
+offset_top = 40.0
+offset_right = 448.0
+offset_bottom = 130.0
+mouse_filter = 2
+theme_override_constants/separation = 0
+
+[node name="Title" type="Label" parent="TitleBlock"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.827, 1, 0.937, 1)
+theme_override_font_sizes/font_size = 62
+text = "YOUR GAME"
+
+[node name="Tagline" type="Label" parent="TitleBlock"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.404, 0.639, 0.588, 1)
+theme_override_font_sizes/font_size = 17
+text = "tagline"
+
+[node name="MenuBlock" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -60.0
+offset_right = 150.0
+offset_bottom = 60.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="BottomStack" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 48.0
+offset_top = -110.0
+offset_right = -48.0
+offset_bottom = -28.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="UpdateBar" type="PanelContainer" parent="BottomStack"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Row" type="HBoxContainer" parent="BottomStack/UpdateBar"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="StatusLabel" type="Label" parent="BottomStack/UpdateBar/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.604, 0.776, 0.741, 1)
+theme_override_font_sizes/font_size = 16
+text = "Not checked yet."
+autowrap_mode = 3
+
+[node name="UpdateProgress" type="ProgressBar" parent="BottomStack/UpdateBar/Row"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 8)
+layout_mode = 2
+size_flags_vertical = 4
+show_percentage = false
+
+[node name="NotesButton" type="Button" parent="BottomStack/UpdateBar/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 17
+text = "What's new"
+
+[node name="UpdateButton" type="Button" parent="BottomStack/UpdateBar/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 17
+text = "Check for updates"
+
+[node name="VersionLabel" type="Label" parent="BottomStack"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 8
+theme_override_colors/font_color = Color(0.318, 0.463, 0.435, 1)
+theme_override_font_sizes/font_size = 13
+text = "v0.0.0"
+
+[node name="UpdateOverlay" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Dim" type="ColorRect" parent="UpdateOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.004, 0.016, 0.014, 0.784)
+
+[node name="Center" type="CenterContainer" parent="UpdateOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Dialog" type="PanelContainer" parent="UpdateOverlay/Center"]
+custom_minimum_size = Vector2(440, 0)
+layout_mode = 2
+
+[node name="Box" type="VBoxContainer" parent="UpdateOverlay/Center/Dialog"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="OverlayTitle" type="Label" parent="UpdateOverlay/Center/Dialog/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.827, 1, 0.937, 1)
+theme_override_font_sizes/font_size = 26
+text = "Update ready"
+
+[node name="OverlayScroll" type="ScrollContainer" parent="UpdateOverlay/Center/Dialog/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 0
+
+[node name="OverlayBody" type="Label" parent="UpdateOverlay/Center/Dialog/Box/OverlayScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.663, 0.812, 0.78, 1)
+theme_override_font_sizes/font_size = 17
+text = "…"
+autowrap_mode = 3
+
+[node name="Actions" type="HBoxContainer" parent="UpdateOverlay/Center/Dialog/Box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 2
+
+[node name="OverlaySecondary" type="Button" parent="UpdateOverlay/Center/Dialog/Box/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Later"
+
+[node name="OverlayPrimary" type="Button" parent="UpdateOverlay/Center/Dialog/Box/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Restart now"

@@ -1,0 +1,17 @@
+# Godot's import cache and generated metadata
+.godot/
+*.translation
+
+# Build output
+/build/
+
+# Signing material must never be committed.
+*.keystore
+*.jks
+*.p12
+*.idsig
+
+# Local editor overrides
+export_presets.local.cfg
+.vscode/
+.idea/

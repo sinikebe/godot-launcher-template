@@ -1,0 +1,38 @@
+; Demo project for developing the launcher standalone.
+; A game using this template keeps its own project.godot; the parts that matter
+; are the [autoload] block and the launcher/config_path setting.
+
+config_version=5
+
+[application]
+
+config/name="Godot Launcher Template"
+run/main_scene="res://addons/launcher/launcher.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+boot_splash/bg_color=Color(0.023, 0.055, 0.05, 1)
+boot_splash/show_image=false
+config/icon="res://icon.svg"
+
+[autoload]
+
+BuildInfo="*res://addons/launcher/build_info.gd"
+UpdateService="*res://addons/launcher/update_service.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=4
+
+[launcher]
+
+config_path="res://launcher_config.tres"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.023, 0.055, 0.05, 1)
