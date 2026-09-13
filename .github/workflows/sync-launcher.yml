@@ -99,35 +99,51 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BRANCH: launcher-sync
           BASE: ${{ github.event.repository.default_branch }}
+          # Everything below comes from the TEMPLATE repository, not this one:
+          # SUBJECT is its HEAD commit subject, WORKFLOW_DRIFT a list of its
+          # workflow filenames. A `${{ }}` is substituted into the script as
+          # text before bash parses it, so interpolating either one directly
+          # would let a commit subject or a filename run commands here -- with
+          # this job's contents:write and pull-requests:write. Passed as env
+          # instead, they arrive as inert values that are never re-parsed.
+          SHORT_COMMIT: ${{ steps.sync.outputs.short_commit }}
+          COMMIT: ${{ steps.sync.outputs.commit }}
+          SUBJECT: ${{ steps.sync.outputs.subject }}
+          WORKFLOW_DRIFT: ${{ steps.sync.outputs.workflow_drift }}
+          # GitHub-controlled and not attacker-influenced, but routed the same
+          # way so the rule stays one a reviewer can check by eye: no `${{ }}`
+          # anywhere inside a `run:` block.
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
           git add -A
-          git commit -m "Sync launcher from template @ ${{ steps.sync.outputs.short_commit }}
+          git commit -m "Sync launcher from template @ $SHORT_COMMIT
 
-          ${{ steps.sync.outputs.subject }}
+          $SUBJECT
 
-          Source: ${LAUNCHER_TEMPLATE_REPO}@${{ steps.sync.outputs.commit }}"
+          Source: ${LAUNCHER_TEMPLATE_REPO}@$COMMIT"
           git push -f origin "$BRANCH"
 
-          BODY="Pulls \`addons/launcher/\` and \`ci/\` from [\`${LAUNCHER_TEMPLATE_REPO}\`](https://github.com/${LAUNCHER_TEMPLATE_REPO}) at \`${{ steps.sync.outputs.short_commit }}\`.
+          BODY="Pulls \`addons/launcher/\` and \`ci/\` from [\`${LAUNCHER_TEMPLATE_REPO}\`](https://github.com/${LAUNCHER_TEMPLATE_REPO}) at \`$SHORT_COMMIT\`.
 
-          > ${{ steps.sync.outputs.subject }}
+          > $SUBJECT
 
           The project was imported and booted headless on this branch before the PR was opened.
 
           **Review before merging** -- merging publishes a release to players."
 
-          if [[ -n "${{ steps.sync.outputs.workflow_drift }}" ]]; then
+          if [[ -n "$WORKFLOW_DRIFT" ]]; then
             BODY="$BODY
 
           ---
-          **These workflows also changed upstream and must be copied by hand:** \`${{ steps.sync.outputs.workflow_drift }}\`
+          **These workflows also changed upstream and must be copied by hand:** \`$WORKFLOW_DRIFT\`
           A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves them alone."
           fi
 
-          TITLE="Sync launcher @ ${{ steps.sync.outputs.short_commit }}"
+          TITLE="Sync launcher @ $SHORT_COMMIT"
 
           # Match only OPEN pull requests. `gh pr view <branch>` also resolves
           # merged and closed ones, so once the first sync PR was merged every
@@ -148,7 +164,7 @@ jobs:
               echo "Enable **Allow GitHub Actions to create and approve pull requests**"
               echo "under Settings -> Actions -> General, or open it yourself:"
               echo ""
-              echo "${{ github.server_url }}/${{ github.repository }}/compare/$BRANCH?expand=1"
+              echo "$SERVER_URL/$REPOSITORY/compare/$BRANCH?expand=1"
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::warning::Branch $BRANCH is pushed; PR creation was refused."
           fi
