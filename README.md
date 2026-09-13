@@ -62,7 +62,16 @@ and the rest is a demo harness for developing it.
    cp -R /tmp/lt/template/.github/workflows/. .github/workflows/
    ```
 
-2. **Register the autoloads**, in this order, and point at your config — in
+2. **Name your game.** In `version.json` set `game_name`. The release assets
+   derive from it (`Your Game` → `your-game.apk`, `YourGame.exe`), so set it
+   before your first release — those names have to stay stable afterwards.
+
+   Then, in `export_presets.cfg`, change **`package/unique_name`** away from
+   `com.example.yourgame`. This is an Android package id and it must be unique
+   across every app on a device: leave a copied one in place and your build
+   collides with whatever else is using it, and neither can update the other.
+
+3. **Register the autoloads**, in this order, and point at your config — in
    `project.godot`:
 
    ```ini
@@ -77,13 +86,17 @@ and the rest is a demo harness for developing it.
    `BuildInfo` **must come first**: it mounts content packs before anything
    loads a scene out of `res://`.
 
-3. **Make a `LauncherConfig`.** In the editor: right-click → New Resource →
+4. **Make a `LauncherConfig`.** In the editor: right-click → New Resource →
    `LauncherConfig`, save as `res://launcher_config.tres`. Set `update_repo` to
    your game's own `owner/name` on GitHub.
 
-4. **Set the main scene** to `res://addons/launcher/launcher.tscn`.
+5. **Set the main scene** to `res://addons/launcher/launcher.tscn`.
 
-5. **Merge to `main`.** The release workflow does the rest.
+6. **Enable pull requests from Actions** — Settings → Actions → General →
+   *Allow GitHub Actions to create and approve pull requests*. Without it the
+   daily sync still runs and pushes its branch, it just cannot open the PR.
+
+7. **Merge to `main`.** The release workflow does the rest.
 
 For Android you also need signing secrets — see
 [docs/UPDATES.md](docs/UPDATES.md#signing). Without them CI falls back to a
@@ -180,6 +193,16 @@ in the pull request body, and you copy them across by hand.
 | `template/` | Starter files a game copies **once**: workflows and export presets |
 | `docs/UPDATES.md` | How updating actually works, and how to sign Android builds |
 | `build_version.gd`, `launcher_config.tres`, `project.godot` | The demo harness |
+
+## Does this need anything from me?
+
+No. The template is public, and a game syncs from it with an anonymous clone —
+no token, no account, no permission. Fork it if you would rather not depend on
+this repo moving under you, and point `LAUNCHER_TEMPLATE_REPO` in the sync
+workflow at your fork.
+
+Nothing is shared between games that use it: each one has its own repository,
+its own releases, its own Android package id and its own signing key.
 
 ## Requirements
 

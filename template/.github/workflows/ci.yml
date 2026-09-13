@@ -71,6 +71,7 @@ jobs:
         run: bash ci/collect_changes.sh
 
       - name: Stamp build version
+        id: version
         run: bash ci/prepare_build.sh
 
       - name: Resolve throwaway signing key
@@ -94,12 +95,12 @@ jobs:
           GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: android
         run: |
           mkdir -p build/android
-          ~/godot/godot --headless --path . --export-release "Android" build/android/biogenic.apk
+          ~/godot/godot --headless --path . --export-release "Android" build/android/${{ steps.version.outputs.apk_name }}
 
       - name: Export Windows executable
         run: |
           mkdir -p build/windows
-          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/Biogenic.exe
+          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/${{ steps.version.outputs.exe_name }}
 
       - name: Export content packs
         run: |
@@ -110,10 +111,10 @@ jobs:
       - name: Upload build for inspection
         uses: actions/upload-artifact@v7
         with:
-          name: biogenic-pr-${{ github.event.pull_request.number || github.run_id }}
+          name: build-pr-${{ github.event.pull_request.number || github.run_id }}
           path: |
-            build/android/biogenic.apk
-            build/windows/Biogenic.exe
+            build/android/${{ steps.version.outputs.apk_name }}
+            build/windows/${{ steps.version.outputs.exe_name }}
             build/content/*.pck
           if-no-files-found: error
           retention-days: 7

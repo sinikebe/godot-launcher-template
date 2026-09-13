@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publishes (or refreshes) the GitHub release that the in-app updater polls.
 #
-# Asset names are intentionally version-free -- biogenic.apk, Biogenic.exe,
+# Asset names are intentionally version-free -- <game>.apk, <Game>.exe,
 # manifest.json -- because the app fetches them through
 # /releases/latest/download/<name>, which only resolves if the name is stable
 # from one release to the next.
@@ -9,6 +9,9 @@ set -euo pipefail
 
 : "${TAG:?TAG must be set}"
 : "${VERSION_NAME:?VERSION_NAME must be set}"
+: "${GAME_NAME:?GAME_NAME must be set}"
+: "${APK_NAME:?APK_NAME must be set}"
+: "${EXE_NAME:?EXE_NAME must be set}"
 : "${BINARY_VERSION:?BINARY_VERSION must be set}"
 : "${CONTENT_VERSION:?CONTENT_VERSION must be set}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
@@ -31,7 +34,7 @@ NOTES="$(mktemp)"
 trap 'rm -f "$NOTES"' EXIT
 
 {
-	echo "## Biogenic ${VERSION_NAME}"
+	echo "## ${GAME_NAME} ${VERSION_NAME}"
 	echo ""
 	echo "| | |"
 	echo "|---|---|"
@@ -52,8 +55,8 @@ with open('build/notes/changes.json', encoding='utf-8') as fh:
 	fi
 	echo "### Download"
 	echo ""
-	echo "- **Android** — [biogenic.apk](https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/biogenic.apk)"
-	echo "- **Windows** — [Biogenic.exe](https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Biogenic.exe) (single self-contained file)"
+	echo "- **Android** — [${APK_NAME}](https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/${APK_NAME})"
+	echo "- **Windows** — [${EXE_NAME}](https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/${EXE_NAME}) (single self-contained file)"
 	echo ""
 	echo "Install once and the app updates itself from then on: the main menu checks this"
 	echo "release feed on launch, and applies whatever it finds — a new APK on Android, or a"
@@ -70,10 +73,10 @@ with open('build/notes/changes.json', encoding='utf-8') as fh:
 if gh release view "$TAG" >/dev/null 2>&1; then
 	echo "Release ${TAG} exists — refreshing its assets."
 	gh release upload "$TAG" "$RELEASE_DIR"/* --clobber
-	gh release edit "$TAG" --title "Biogenic ${VERSION_NAME}" --notes-file "$NOTES" --latest
+	gh release edit "$TAG" --title "${GAME_NAME} ${VERSION_NAME}" --notes-file "$NOTES" --latest
 else
 	gh release create "$TAG" "$RELEASE_DIR"/* \
-		--title "Biogenic ${VERSION_NAME}" \
+		--title "${GAME_NAME} ${VERSION_NAME}" \
 		--notes-file "$NOTES" \
 		--latest
 fi

@@ -210,7 +210,7 @@ func _apply_binary() -> State:
 
 	if BuildInfo.is_android():
 		DirAccess.make_dir_recursive_absolute(BuildInfo.STAGING_DIR)
-		var apk_path := BuildInfo.STAGING_DIR.path_join("biogenic-%d.apk" % pending_version)
+		var apk_path := BuildInfo.STAGING_DIR.path_join("update-%d.apk" % pending_version)
 
 		# Backing out of the system installer leaves a good APK on disk. Re-hash
 		# it rather than pulling ~50 MB down again -- cheap, and it keeps the
@@ -253,7 +253,7 @@ func _hand_off_to_installer() -> State:
 	if not AndroidBridge.can_install_packages():
 		AndroidBridge.open_install_settings()
 		return _finish(State.NEEDS_PERMISSION,
-			"Allow Biogenic to install unknown apps, then tap Install.")
+			"Allow %s to install unknown apps, then tap Install." % BuildInfo.config.game_title)
 
 	if not AndroidBridge.install_apk(_verified_apk_path):
 		# The APK sits in private storage, so there is nothing the user could
@@ -412,7 +412,7 @@ func restart_app() -> bool:
 ## embedded at export time), so "installing" it is one file copy.
 func _apply_windows_binary(url: String) -> State:
 	DirAccess.make_dir_recursive_absolute(BuildInfo.STAGING_DIR)
-	var staged := BuildInfo.STAGING_DIR.path_join("Biogenic-%d.exe" % pending_version)
+	var staged := BuildInfo.STAGING_DIR.path_join("update-%d.exe" % pending_version)
 
 	var download_state := await _download_verified(url, staged)
 	if download_state != State.VERIFYING:

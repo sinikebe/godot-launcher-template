@@ -14,6 +14,28 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Artifact names derive from the game's name so a project only states it once.
+# They must stay stable across releases: the app fetches them through
+# /releases/latest/download/<name>, which only resolves for a fixed name.
+# One value per line, because a game name may contain spaces.
+mapfile -t _DERIVED < <(python3 - <<'PYEOF'
+import json, re
+
+with open("version.json", encoding="utf-8") as fh:
+    name = str(json.load(fh).get("game_name", "Game")).strip() or "Game"
+slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "game"
+exe = re.sub(r"[^A-Za-z0-9]+", "", name) or "Game"
+print(name)
+print(slug)
+print(f"{slug}.apk")
+print(f"{exe}.exe")
+PYEOF
+)
+GAME_NAME="${_DERIVED[0]}"
+GAME_SLUG="${_DERIVED[1]}"
+APK_NAME="${_DERIVED[2]}"
+EXE_NAME="${_DERIVED[3]}"
+
 VERSION_NAME="$(python3 -c 'import json;print(json.load(open("version.json",encoding="utf-8"))["version_name"])')"
 BINARY_VERSION="$(python3 -c 'import json;print(int(json.load(open("version.json",encoding="utf-8"))["binary_version"]))')"
 
@@ -96,6 +118,9 @@ else
 	echo "No export_presets.cfg; skipping the Android version stamp."
 fi
 
+echo "game_name=${GAME_NAME}"
+echo "apk_name=${APK_NAME}"
+echo "exe_name=${EXE_NAME}"
 echo "version_name=${VERSION_NAME}"
 echo "binary_version=${BINARY_VERSION}"
 echo "content_version=${CONTENT_VERSION}"
@@ -105,6 +130,10 @@ echo "tag=v${VERSION_NAME}+${CONTENT_VERSION}"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
 	{
+		echo "game_name=${GAME_NAME}"
+		echo "game_slug=${GAME_SLUG}"
+		echo "apk_name=${APK_NAME}"
+		echo "exe_name=${EXE_NAME}"
 		echo "version_name=${VERSION_NAME}"
 		echo "binary_version=${BINARY_VERSION}"
 		echo "content_version=${CONTENT_VERSION}"

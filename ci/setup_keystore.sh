@@ -11,7 +11,7 @@
 # It only ever prints the PATH of the keystore, which is not sensitive.
 set -euo pipefail
 
-KEYSTORE_DIR="${RUNNER_TEMP:-/tmp}/biogenic-signing"
+KEYSTORE_DIR="${RUNNER_TEMP:-/tmp}/launcher-signing"
 mkdir -p "$KEYSTORE_DIR"
 chmod 700 "$KEYSTORE_DIR"
 KEYSTORE_PATH="${KEYSTORE_DIR}/android.keystore"
@@ -46,7 +46,7 @@ fi
 # app whose new APK is signed with a different key, so a freshly generated key
 # on every run would break in-place self-update entirely.
 # ---------------------------------------------------------------------------
-CACHE_DIR="${KEYSTORE_CACHE_DIR:-${RUNNER_TEMP:-/tmp}/biogenic-keystore-cache}"
+CACHE_DIR="${KEYSTORE_CACHE_DIR:-${RUNNER_TEMP:-/tmp}/launcher-keystore-cache}"
 mkdir -p "$CACHE_DIR"
 CACHED="${CACHE_DIR}/debug.keystore"
 
@@ -62,7 +62,7 @@ else
 		-keyalg RSA \
 		-keysize 2048 \
 		-validity 10950 \
-		-dname "CN=Biogenic Debug, OU=CI, O=Biogenic, L=, S=, C=US" \
+		-dname "CN=${GAME_NAME:-Game} Debug, OU=CI, O=${GAME_NAME:-Game}, L=, S=, C=US" \
 		-noprompt
 fi
 

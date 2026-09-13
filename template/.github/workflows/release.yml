@@ -88,8 +88,8 @@ jobs:
       - name: Restore signing keystore cache
         uses: actions/cache@v6
         with:
-          path: ${{ runner.temp }}/biogenic-keystore-cache
-          key: biogenic-debug-keystore-v1
+          path: ${{ runner.temp }}/launcher-keystore-cache
+          key: launcher-debug-keystore-v1
 
       - name: Resolve signing key
         id: keystore
@@ -97,7 +97,8 @@ jobs:
           # Absent on a repo with no signing secrets configured; setup_keystore.sh
           # then falls back to a cached debug key and says so in the job summary.
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_CACHE_DIR: ${{ runner.temp }}/biogenic-keystore-cache
+          KEYSTORE_CACHE_DIR: ${{ runner.temp }}/launcher-keystore-cache
+          GAME_NAME: ${{ steps.version.outputs.game_name }}
         run: bash ci/setup_keystore.sh
 
       - name: Import project
@@ -113,20 +114,20 @@ jobs:
           GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
         run: |
           mkdir -p build/android
-          ~/godot/godot --headless --path . --export-release "Android" build/android/biogenic.apk
+          ~/godot/godot --headless --path . --export-release "Android" build/android/${{ steps.version.outputs.apk_name }}
           # Godot leaves an APK Signature Scheme v4 sidecar next to the APK that
           # is not part of the distribution.
-          rm -f build/android/biogenic.apk.idsig
+          rm -f build/android/${{ steps.version.outputs.apk_name }}.idsig
 
       - name: Verify APK signature
         run: |
           BUILD_TOOLS="$(find "${ANDROID_SDK_ROOT}/build-tools" -maxdepth 1 -type d -name '3*' | sort -V | tail -1)"
-          "${BUILD_TOOLS}/apksigner" verify --print-certs build/android/biogenic.apk
+          "${BUILD_TOOLS}/apksigner" verify --print-certs build/android/${{ steps.version.outputs.apk_name }}
 
       - name: Export Windows executable
         run: |
           mkdir -p build/windows
-          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/Biogenic.exe
+          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/${{ steps.version.outputs.exe_name }}
 
       - name: Export content packs
         # One pack per platform: texture compression differs between mobile and
@@ -139,8 +140,8 @@ jobs:
       - name: Assemble release directory
         run: |
           mkdir -p build/release
-          cp build/android/biogenic.apk build/release/
-          cp build/windows/Biogenic.exe build/release/
+          cp build/android/${{ steps.version.outputs.apk_name }} build/release/
+          cp build/windows/${{ steps.version.outputs.exe_name }} build/release/
           cp build/content/content-android.pck build/release/
           cp build/content/content-windows.pck build/release/
 
@@ -155,8 +156,8 @@ jobs:
             --content-version "${{ steps.version.outputs.content_version }}" \
             --commit "${{ steps.version.outputs.commit }}" \
             --tag "${{ steps.version.outputs.tag }}" \
-            --artifact "binary:android:build/release/biogenic.apk" \
-            --artifact "binary:windows:build/release/Biogenic.exe" \
+            --artifact "binary:android:build/release/${{ steps.version.outputs.apk_name }}" \
+            --artifact "binary:windows:build/release/${{ steps.version.outputs.exe_name }}" \
             --artifact "content:android:build/release/content-android.pck" \
             --artifact "content:windows:build/release/content-windows.pck" \
             --out build/release/manifest.json
@@ -166,6 +167,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          GAME_NAME: ${{ steps.version.outputs.game_name }}
+          APK_NAME: ${{ steps.version.outputs.apk_name }}
+          EXE_NAME: ${{ steps.version.outputs.exe_name }}
           BINARY_VERSION: ${{ steps.version.outputs.binary_version }}
           CONTENT_VERSION: ${{ steps.version.outputs.content_version }}
           SIGNING_KIND: ${{ steps.keystore.outputs.kind }}
@@ -175,4 +179,4 @@ jobs:
         # Runners are ephemeral, but the keystore is removed explicitly so it
         # cannot survive into any later step of this job.
         if: always()
-        run: rm -rf "${RUNNER_TEMP}/biogenic-signing"
+        run: rm -rf "${RUNNER_TEMP}/launcher-signing"

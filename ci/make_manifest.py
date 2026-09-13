@@ -10,7 +10,7 @@ The artifact URLs inside it, however, are pinned to *this* release's tag rather
 than to ``latest``. That matters: GitHub's CDN caches the two paths
 independently, so during a release there is a window where
 ``latest/download/manifest.json`` still serves the previous release while
-``latest/download/biogenic.apk`` already serves the new one. Tag-pinned URLs make
+``latest/download/<game>.apk`` already serves the new one. Tag-pinned URLs make
 each manifest internally consistent -- a client that gets a stale manifest simply
 installs that slightly older release and catches up on its next check, instead of
 pairing one release's checksum with another release's bytes and failing.
