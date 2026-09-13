@@ -96,7 +96,7 @@ PY
 # workflows cannot be synced automatically. Detect when they have drifted and
 # say so, rather than letting a game silently run year-old CI.
 WORKFLOW_DRIFT=""
-for candidate in "$WORK/template/template/.github/workflows/"*.yml; do
+for candidate in "$WORK/template/.github/workflows/"*.yml; do
 	[[ -e "$candidate" ]] || continue
 	name="$(basename "$candidate")"
 	mine=".github/workflows/${name}"

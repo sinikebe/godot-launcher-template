@@ -80,6 +80,13 @@ func check_for_updates() -> State:
 	if not BuildInfo.config.updates_enabled():
 		return _finish(State.UNAVAILABLE,
 			"No update repository configured (set update_repo in the launcher config).")
+
+	# A game that copied the demo's config would poll the launcher template and
+	# try to install the demo over itself. Refuse rather than do that.
+	var source := BuildInfo.launcher_source()
+	if not source.is_empty() and BuildInfo.config.update_repo == source:
+		return _finish(State.UNAVAILABLE,
+			"update_repo still points at the launcher template. Set it to this game's own repository.")
 	_busy = true
 	_set_state(State.CHECKING)
 	last_error = ""

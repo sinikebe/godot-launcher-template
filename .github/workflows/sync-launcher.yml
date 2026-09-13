@@ -34,6 +34,10 @@ jobs:
   sync:
     name: Sync from template
     runs-on: ubuntu-latest
+    # Skip inside the template itself, which would otherwise sync from its own
+    # HEAD and open a pull request against itself. Change this alongside
+    # LAUNCHER_TEMPLATE_REPO if you maintain your own fork of the template.
+    if: github.repository != 'sinikebe/godot-launcher-template'
     permissions:
       contents: write
       pull-requests: write

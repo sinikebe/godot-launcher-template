@@ -188,6 +188,11 @@ func display_version() -> String:
 	return text + "\n" + launcher_version()
 
 
+## Repository this launcher was synced from, or "" inside the template itself.
+func launcher_source() -> String:
+	return LauncherVersion.SOURCE
+
+
 ## "launcher <semver> · <template commit>", for bug reports.
 func launcher_version() -> String:
 	var text := "launcher %s" % LauncherVersion.VERSION

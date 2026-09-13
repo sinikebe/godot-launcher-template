@@ -6,6 +6,10 @@ fifteen minutes. No prior GitHub Actions knowledge needed.
 **What you need:** [Godot 4.7](https://godotengine.org/download), a GitHub
 account, and [`gh`](https://cli.github.com) or git on the command line.
 
+**Want to see it first?** Install the
+[demo build](https://github.com/sinikebe/godot-launcher-template/releases/latest)
+— it is this template, shipped by the same workflows your game will use.
+
 ---
 
 ## 1. Make your repository
@@ -37,8 +41,7 @@ bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
   across every app on a phone. Two apps sharing one collide, and then neither
   can update the other. Use your own name or domain; never leave the example.
 
-> **You should see** a list of changed files ending in `template/ moved into
-> place and removed`.
+> **You should see** a short list of changed files ending in `template/ removed`.
 
 Commit it:
 

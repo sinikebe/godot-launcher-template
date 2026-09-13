@@ -40,13 +40,22 @@ own with a scheduled job.
 
 ## Try it
 
+Install the demo and watch it update itself before you commit to anything:
+
+| | |
+|---|---|
+| Android | [**launcher-demo.apk**](https://github.com/sinikebe/godot-launcher-template/releases/latest/download/launcher-demo.apk) |
+| Windows | [**LauncherDemo.exe**](https://github.com/sinikebe/godot-launcher-template/releases/latest/download/LauncherDemo.exe) |
+
+It is this repository, built by the same workflows a game gets, polling this
+repository for its own updates. Whatever it does there, your game will do.
+
+Or run it from source:
+
 ```bash
 git clone https://github.com/sinikebe/godot-launcher-template
 godot --path godot-launcher-template
 ```
-
-The repo is a runnable Godot project: `addons/launcher/` is the reusable part,
-and the rest is a demo harness for developing it.
 
 ## Start a new game
 
@@ -78,7 +87,7 @@ git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
 cp -R /tmp/lt/addons/launcher addons/launcher
 cp -R /tmp/lt/ci ci
 cp /tmp/lt/build_version.gd /tmp/lt/version.json /tmp/lt/launcher_config.tres .
-cp -R /tmp/lt/template/.github/workflows/. .github/workflows/
+cp -R /tmp/lt/.github/workflows/. .github/workflows/
 cp /tmp/lt/template/export_presets.cfg .   # merge with yours if you have one
 ```
 
@@ -167,7 +176,7 @@ the default dark-green one.
 
 ## Keeping games up to date with the template
 
-`template/.github/workflows/sync-launcher.yml` runs daily in each game, pulls
+`.github/workflows/sync-launcher.yml` runs daily in each game, pulls
 `addons/launcher/` and `ci/` from this repo, imports and boots the project to
 prove it still loads, and opens a pull request if anything changed.
 
@@ -197,7 +206,8 @@ in the pull request body, and you copy them across by hand.
 | `addons/launcher/launcher_config.gd` | Every knob, documented inline |
 | `addons/launcher/launcher_version.gd` | The launcher's own version; bump `VERSION` when it changes meaningfully |
 | `ci/` | Build and release scripts. Also synced |
-| `template/` | Starter files a game copies **once**: workflows and export presets |
+| `template/` | The one starter file a game copies **once**: `export_presets.cfg` |
+| `.github/workflows/` | The template's own CI — and exactly what a game gets |
 | `docs/GETTING-STARTED.md` | **Start here.** Zero to a self-updating release |
 | `docs/TROUBLESHOOTING.md` | Symptoms, and what each one means |
 | `docs/UPDATES.md` | How updating actually works, in depth |

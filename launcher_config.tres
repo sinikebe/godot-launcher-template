@@ -5,7 +5,7 @@
 
 [resource]
 script = ExtResource("1_config")
-game_title = "LAUNCHER"
+game_title = "LAUNCHER DEMO"
 tagline = "template demo · build {build}"
 background_shader = ExtResource("2_shader")
 background_color = Color(0.023, 0.055, 0.05, 1)
@@ -25,6 +25,6 @@ show_quit = true
 quit_text = "Quit"
 extra_buttons = PackedStringArray("Settings")
 play_scene = ""
-update_repo = ""
+update_repo = "sinikebe/godot-launcher-template"
 check_on_launch = true
 show_update_bar = true

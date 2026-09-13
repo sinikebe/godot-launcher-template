@@ -6,7 +6,7 @@ config_version=5
 
 [application]
 
-config/name="Godot Launcher Template"
+config/name="Launcher Demo"
 run/main_scene="res://addons/launcher/launcher.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.023, 0.055, 0.05, 1)

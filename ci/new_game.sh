@@ -51,9 +51,9 @@ fi
 
 echo "Setting up '${GAME_NAME}' (${PACKAGE_ID}) for ${REPO}…"
 
-mkdir -p .github/workflows
-mv template/.github/workflows/*.yml .github/workflows/
-mv template/export_presets.cfg export_presets.cfg
+# The workflows are already at .github/workflows/ in a repo made from the
+# template; only the export presets need putting in place, replacing the demo's.
+mv -f template/export_presets.cfg export_presets.cfg
 rm -rf template
 
 python3 - "$GAME_NAME" "$PACKAGE_ID" "$REPO" <<'PY'
@@ -97,11 +97,11 @@ PY
 cat <<EOF
 
 Done. Changed:
-  version.json          game_name      -> ${GAME_NAME}
-  export_presets.cfg    package id     -> ${PACKAGE_ID}
+  version.json          game_name          -> ${GAME_NAME}
+  export_presets.cfg    package id         -> ${PACKAGE_ID}
   launcher_config.tres  title, update_repo -> ${REPO}
   project.godot         project name
-  template/             moved into place and removed
+  template/             removed
 
 Next:
   1. git add -A && git commit -m "Set up ${GAME_NAME}" && git push
