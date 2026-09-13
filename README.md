@@ -48,59 +48,55 @@ godot --path godot-launcher-template
 The repo is a runnable Godot project: `addons/launcher/` is the reusable part,
 and the rest is a demo harness for developing it.
 
-## Install it into a game
+## Start a new game
 
-1. **Copy the launcher in.**
+**[→ Getting started](docs/GETTING-STARTED.md)** walks through it end to end,
+with what you should see at each step. The short version:
+
+1. **Use this template** → create your repository → clone it.
+2. Name it, in one command:
 
    ```bash
-   cd your-game
-   git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
-   cp -R /tmp/lt/addons/launcher addons/launcher
-   cp -R /tmp/lt/ci ci
-   cp /tmp/lt/build_version.gd build_version.gd
-   cp /tmp/lt/version.json version.json
-   cp -R /tmp/lt/template/.github/workflows/. .github/workflows/
+   bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
    ```
 
-2. **Name your game.** In `version.json` set `game_name`. The release assets
-   derive from it (`Your Game` → `your-game.apk`, `YourGame.exe`), so set it
-   before your first release — those names have to stay stable afterwards.
+3. Commit, push, and enable *Settings → Actions → General → Allow GitHub
+   Actions to create and approve pull requests*.
 
-   Then, in `export_presets.cfg`, change **`package/unique_name`** away from
-   `com.example.yourgame`. This is an Android package id and it must be unique
-   across every app on a device: leave a copied one in place and your build
-   collides with whatever else is using it, and neither can update the other.
+That is it. The first push builds an APK, a Windows `.exe` and the update
+manifest, and publishes them as a release.
 
-3. **Register the autoloads**, in this order, and point at your config — in
-   `project.godot`:
+Before other people install it, [set up Android
+signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it) —
+changing the key afterwards forces everyone to uninstall first.
 
-   ```ini
-   [autoload]
-   BuildInfo="*res://addons/launcher/build_info.gd"
-   UpdateService="*res://addons/launcher/update_service.gd"
+## Add it to an existing game
 
-   [launcher]
-   config_path="res://launcher_config.tres"
-   ```
+```bash
+cd your-game
+git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
+cp -R /tmp/lt/addons/launcher addons/launcher
+cp -R /tmp/lt/ci ci
+cp /tmp/lt/build_version.gd /tmp/lt/version.json /tmp/lt/launcher_config.tres .
+cp -R /tmp/lt/template/.github/workflows/. .github/workflows/
+cp /tmp/lt/template/export_presets.cfg .   # merge with yours if you have one
+```
 
-   `BuildInfo` **must come first**: it mounts content packs before anything
-   loads a scene out of `res://`.
+Then in `project.godot`, register the autoloads **in this order** and point at
+your config:
 
-4. **Make a `LauncherConfig`.** In the editor: right-click → New Resource →
-   `LauncherConfig`, save as `res://launcher_config.tres`. Set `update_repo` to
-   your game's own `owner/name` on GitHub.
+```ini
+[autoload]
+BuildInfo="*res://addons/launcher/build_info.gd"
+UpdateService="*res://addons/launcher/update_service.gd"
 
-5. **Set the main scene** to `res://addons/launcher/launcher.tscn`.
+[launcher]
+config_path="res://launcher_config.tres"
+```
 
-6. **Enable pull requests from Actions** — Settings → Actions → General →
-   *Allow GitHub Actions to create and approve pull requests*. Without it the
-   daily sync still runs and pushes its branch, it just cannot open the PR.
-
-7. **Merge to `main`.** The release workflow does the rest.
-
-For Android you also need signing secrets — see
-[docs/UPDATES.md](docs/UPDATES.md#signing). Without them CI falls back to a
-throwaway debug key, which builds fine but cannot self-update reliably.
+`BuildInfo` must come first — it mounts content packs before anything loads a
+scene out of `res://`. Set the main scene to
+`res://addons/launcher/launcher.tscn`, then follow steps 2 and 3 above.
 
 ## Making it yours
 
@@ -202,7 +198,9 @@ in the pull request body, and you copy them across by hand.
 | `addons/launcher/launcher_version.gd` | The launcher's own version; bump `VERSION` when it changes meaningfully |
 | `ci/` | Build and release scripts. Also synced |
 | `template/` | Starter files a game copies **once**: workflows and export presets |
-| `docs/UPDATES.md` | How updating actually works, and how to sign Android builds |
+| `docs/GETTING-STARTED.md` | **Start here.** Zero to a self-updating release |
+| `docs/TROUBLESHOOTING.md` | Symptoms, and what each one means |
+| `docs/UPDATES.md` | How updating actually works, in depth |
 | `build_version.gd`, `launcher_config.tres`, `project.godot` | The demo harness |
 
 ## Does this need anything from me?
@@ -214,6 +212,14 @@ workflow at your fork.
 
 Nothing is shared between games that use it: each one has its own repository,
 its own releases, its own Android package id and its own signing key.
+
+## Documentation
+
+| | |
+|---|---|
+| [Getting started](docs/GETTING-STARTED.md) | The walkthrough, with what you should see at each step |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | "App not installed", no pull request, updates not detected… |
+| [How updates work](docs/UPDATES.md) | The two version numbers, the manifest, signing, per-platform behaviour |
 
 ## Requirements
 
