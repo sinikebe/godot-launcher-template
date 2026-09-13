@@ -16,7 +16,24 @@ extends Node
 const USER_AGENT := "GodotLauncher/1.0 (+https://github.com/sinikebe/godot-launcher-template)"
 ## Last fetched changelog, so patch notes stay readable with no network.
 const CHANGELOG_CACHE_PATH := "user://changelog.json"
-const REQUEST_TIMEOUT := 30.0
+## HTTPRequest.timeout is total wall-clock from request(), not an idle timeout:
+## it fires while bytes are still arriving. So the manifest and the artifacts
+## cannot share one value -- a bound sized for a few hundred bytes of JSON
+## cancels a download that is progressing perfectly well.
+##
+## The manifest is small and fetched on every launch, so it should give up fast.
+const MANIFEST_TIMEOUT := 30.0
+
+## Artifacts are tens to hundreds of megabytes -- the demo's own release is a
+## 50 MB APK and a 104 MB EXE. At the old shared 30 s those needed 14 and
+## 29 Mbps respectively just to finish, and anything slower failed outright with
+## the partial file deleted and no resume. Half an hour covers 104 MB at about
+## 0.5 Mbps, which is slower than any connection that could complete at all.
+##
+## Not 0 (unlimited): a peer that accepts and then goes silent would hang the
+## download forever. Note that `timeout` does not bound that case well anyway --
+## see the stall-detection issue linked from the commit that added this.
+const DOWNLOAD_TIMEOUT := 1800.0
 const SUPPORTED_SCHEMA := 1
 
 enum State {
@@ -324,7 +341,10 @@ func _matches_pending_checksum(path: String) -> bool:
 ## file instead of being kept in memory.
 func _request(url: String, download_to: String) -> Dictionary:
 	var http := HTTPRequest.new()
-	http.timeout = REQUEST_TIMEOUT
+	# download_to is set only for artifacts, so it is also the signal for which
+	# budget applies -- the one call site that streams to a file is the one that
+	# needs the long one.
+	http.timeout = DOWNLOAD_TIMEOUT if not download_to.is_empty() else MANIFEST_TIMEOUT
 	http.use_threads = true
 	# GitHub serves release assets from a redirect to a signed CDN URL.
 	http.max_redirects = 8
