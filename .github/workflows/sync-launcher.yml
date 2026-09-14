@@ -218,6 +218,18 @@ jobs:
             printf '%s\n' "$OUTPUT"
           else
             printf '%s\n' "$OUTPUT" >&2
+
+            # An open pull request appearing between the `gh pr list` above and
+            # this create is a benign race -- a human opened it by hand in that
+            # window. The end state is the one this step wanted, so it is not a
+            # failure; it is also not the permission refusal, so without its own
+            # branch it would turn a daily sync red for having succeeded.
+            # `concurrency` stops two runs overlapping, but not a person.
+            if [[ "${OUTPUT,,}" == *"already exists"* ]]; then
+              echo "::notice::A pull request for $BRANCH already exists; nothing to open."
+              exit 0
+            fi
+
             {
               echo "### Launcher synced, but the pull request could not be opened"
               echo ""
@@ -228,9 +240,16 @@ jobs:
               echo ""
               echo "\`gh pr create\` reported:"
               echo ""
-              echo '```'
-              printf '%s\n' "$OUTPUT"
-              echo '```'
+              # Indented, not fenced. This is text from GitHub's API, and a line
+              # of ``` inside it would close a fence -- after which the rest
+              # renders as markdown, in a summary a maintainer is reading to find
+              # out what went wrong. An indented code block cannot be closed from
+              # within. The blank line above is what makes it one.
+              if [[ -n "$OUTPUT" ]]; then
+                printf '%s\n' "$OUTPUT" | sed 's/^/    /'
+              else
+                echo "    (no output)"
+              fi
             } >> "$GITHUB_STEP_SUMMARY"
 
             # One cause is expected and benign: the repository has "Allow GitHub
