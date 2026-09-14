@@ -54,9 +54,22 @@ fi
 # again.
 WORKFLOW_CHANGED=()
 WORKFLOW_MISSING=()
+WORKFLOW_REJECTED=0
 for candidate in "$WORK/template/.github/workflows/"*.yml; do
 	[[ -e "$candidate" ]] || continue
 	name="$(basename "$candidate")"
+	# This name comes from the TEMPLATE repository, so it is attacker-controlled
+	# if that repository is compromised. Git allows every byte but "/" and NUL in
+	# a filename, and this one reaches three places that give a newline meaning:
+	# $GITHUB_OUTPUT, which the runner parses line by line -- so an embedded
+	# newline forges step outputs, and a forged empty workflow_drift erases this
+	# very warning -- plus $GITHUB_STEP_SUMMARY and a pull request body, both
+	# rendered as markdown. A real workflow filename is none of those things, so
+	# anything else is counted and never echoed.
+	if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.yml$ ]]; then
+		WORKFLOW_REJECTED=$((WORKFLOW_REJECTED + 1))
+		continue
+	fi
 	mine=".github/workflows/${name}"
 	if [[ ! -f "$mine" ]]; then
 		# Upstream-only: the template added a workflow, or split an existing one
@@ -90,13 +103,22 @@ fi
 # written here, by the script itself, so it does not depend on a later step
 # running.
 drift_report() {
-	[[ -n "$CHANGED_LIST$MISSING_LIST" ]] || return 0
+	if [[ -z "$CHANGED_LIST$MISSING_LIST" ]] && (( WORKFLOW_REJECTED == 0 )); then
+		return 0
+	fi
 
+	# ::warning:: rather than a plain echo: a sync run that finds nothing to sync
+	# is green and uneventful, and nobody opens the log of a green run. An
+	# annotation surfaces in the Actions list without one. Safe to build from
+	# these names only because the guard above rejected any that are not plain.
 	if [[ -n "$CHANGED_LIST" ]]; then
-		echo "Workflows changed upstream: ${CHANGED_LIST} (copy them by hand)"
+		echo "::warning::Workflows changed upstream and must be copied by hand: ${CHANGED_LIST}"
 	fi
 	if [[ -n "$MISSING_LIST" ]]; then
-		echo "Workflows new upstream, not present here: ${MISSING_LIST} (copy them by hand)"
+		echo "::warning::Workflows are new upstream and not present here; copy them by hand: ${MISSING_LIST}"
+	fi
+	if (( WORKFLOW_REJECTED > 0 )); then
+		echo "::warning::${WORKFLOW_REJECTED} upstream workflow filename(s) are not plain names; not reported by name."
 	fi
 
 	[[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
@@ -117,19 +139,31 @@ drift_report() {
 		echo "cp /tmp/launcher-template/.github/workflows/*.yml .github/workflows/"
 		echo "rm -rf /tmp/launcher-template"
 		echo '```'
-	} >> "$GITHUB_STEP_SUMMARY"
+	} >> "$GITHUB_STEP_SUMMARY" || echo "::warning::Could not write the run summary; the log above is the only copy."
+	# This function runs BEFORE the sync, and set -e would make the group above
+	# the function's exit status. A reporting failure must not become a total
+	# sync failure.
+	return 0
 }
 
 # Called on both paths below, exactly once each.
 emit_outputs() {
 	[[ -n "${GITHUB_OUTPUT:-}" ]] || return 0
+	# key<<DELIM / value / DELIM, with a delimiter no value can contain. The plain
+	# key=value form is read line by line by the runner, so a newline anywhere in
+	# a value starts a line the runner accepts as another output key. The guard in
+	# the drift loop already keeps newlines out of these two values; this closes
+	# the shape of the bug rather than one instance of it, and covers whatever the
+	# next output added here happens to be.
+	local delim
+	delim="ghadelim_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 	{
-		echo "commit=${SHA}"
-		echo "short_commit=${SHORT_SHA}"
-		echo "subject=${SUBJECT}"
-		echo "previous=${PREVIOUS_SHA}"
-		echo "workflow_drift=${CHANGED_LIST}"
-		echo "workflow_missing=${MISSING_LIST}"
+		printf 'commit<<%s\n%s\n%s\n'           "$delim" "$SHA"          "$delim"
+		printf 'short_commit<<%s\n%s\n%s\n'     "$delim" "$SHORT_SHA"    "$delim"
+		printf 'subject<<%s\n%s\n%s\n'          "$delim" "$SUBJECT"      "$delim"
+		printf 'previous<<%s\n%s\n%s\n'         "$delim" "$PREVIOUS_SHA" "$delim"
+		printf 'workflow_drift<<%s\n%s\n%s\n'   "$delim" "$CHANGED_LIST" "$delim"
+		printf 'workflow_missing<<%s\n%s\n%s\n' "$delim" "$MISSING_LIST" "$delim"
 	} >> "$GITHUB_OUTPUT"
 }
 

@@ -122,6 +122,15 @@ jobs:
           # filename run commands here -- with this job's contents:write and
           # pull-requests:write. Passed as env instead, they arrive as inert
           # values that are never re-parsed.
+          #
+          # That rule covers this boundary only. It stops a hostile value being
+          # parsed as shell here; it does nothing about the value being created
+          # in the first place. A step output is written as `key=value` lines
+          # that the runner parses line by line, so a newline inside a value
+          # forges further outputs -- including an empty workflow_drift, which
+          # would erase the very warning below. ci/sync_launcher.sh closes that
+          # end: it rejects filenames that are not plain names, and writes every
+          # output with a heredoc delimiter.
           SHORT_COMMIT: ${{ steps.sync.outputs.short_commit }}
           COMMIT: ${{ steps.sync.outputs.commit }}
           SUBJECT: ${{ steps.sync.outputs.subject }}
