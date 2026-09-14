@@ -150,7 +150,7 @@ Include the bottom-right stamp from your launcher in any report:
 
 ```
 v0.2.0 · bin 2 · content 13 · 6721df5d
-launcher 2.0.0 · b0f419d7
+launcher 2.1.0 · b0f419d7
 ```
 
 It says which game build and which launcher revision you are on, which is
