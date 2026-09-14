@@ -210,18 +210,76 @@ jobs:
 
           if [[ -n "$EXISTING" ]]; then
             gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
-          elif ! gh pr create --head "$BRANCH" --base "$BASE" --title "$TITLE" --body "$BODY"; then
-            # Opening a PR needs "Allow GitHub Actions to create and approve pull
-            # requests" (Settings -> Actions -> General), which is off by default.
-            # The branch is pushed either way, so report how to finish by hand
-            # rather than failing a job that did its actual work.
+          elif OUTPUT="$(gh pr create --head "$BRANCH" --base "$BASE" --title "$TITLE" --body "$BODY" 2>&1)"; then
+            # Echoed back rather than streamed, because the failure branch below
+            # needs this text for the run summary -- and `gh pr create` prints
+            # the new pull request's URL on stdout, so capturing it without
+            # echoing would lose that from the log on the path that works.
+            printf '%s\n' "$OUTPUT"
+          else
+            printf '%s\n' "$OUTPUT" >&2
+
+            # An open pull request appearing between the `gh pr list` above and
+            # this create is a benign race -- a human opened it by hand in that
+            # window. The end state is the one this step wanted, so it is not a
+            # failure; it is also not the permission refusal, so without its own
+            # branch it would turn a daily sync red for having succeeded.
+            # `concurrency` stops two runs overlapping, but not a person.
+            if [[ "${OUTPUT,,}" == *"already exists"* ]]; then
+              echo "::notice::A pull request for $BRANCH already exists; nothing to open."
+              exit 0
+            fi
+
             {
               echo "### Launcher synced, but the pull request could not be opened"
               echo ""
-              echo "Enable **Allow GitHub Actions to create and approve pull requests**"
-              echo "under Settings -> Actions -> General, or open it yourself:"
+              echo "The branch \`$BRANCH\` is pushed, so the sync itself succeeded. Open the"
+              echo "pull request by hand:"
               echo ""
-              echo "$SERVER_URL/$REPOSITORY/compare/$BRANCH?expand=1"
+              echo "$SERVER_URL/$REPOSITORY/compare/$BASE...$BRANCH?expand=1"
+              echo ""
+              echo "\`gh pr create\` reported:"
+              echo ""
+              # Indented, not fenced. This is text from GitHub's API, and a line
+              # of ``` inside it would close a fence -- after which the rest
+              # renders as markdown, in a summary a maintainer is reading to find
+              # out what went wrong. An indented code block cannot be closed from
+              # within. The blank line above is what makes it one.
+              if [[ -n "$OUTPUT" ]]; then
+                printf '%s\n' "$OUTPUT" | sed 's/^/    /'
+              else
+                echo "    (no output)"
+              fi
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::Branch $BRANCH is pushed; PR creation was refused."
+
+            # One cause is expected and benign: the repository has "Allow GitHub
+            # Actions to create and approve pull requests" off, which is the
+            # default. That is a settings choice, not a broken sync, and not
+            # failing the job over it is what efbab66 set out to do.
+            #
+            # Everything else -- a bad base ref, a malformed request, an outage
+            # that began after the `gh pr list` above -- is a real failure, and a
+            # scheduled workflow notifies nobody unless it fails. This used to
+            # report every one of them as the permission setting and exit 0, so a
+            # genuinely broken daily sync stayed green with a summary pointing at
+            # the wrong fix. (The `gh pr edit` branch above never had that
+            # problem: the same error there has always failed the job.)
+            #
+            # The match decides only whether to stay green, never what is
+            # reported -- the real message is already in the log and the summary
+            # above either way. So if that wording ever drifts, a refusal starts
+            # failing the job with an accurate message rather than being filed
+            # under the wrong cause. Wrong in the safe direction.
+            if [[ "${OUTPUT,,}" == *"not permitted to create"* ]]; then
+              {
+                echo ""
+                echo "That is the **Allow GitHub Actions to create and approve pull requests**"
+                echo "setting, under Settings -> Actions -> General. Turn it on and the next"
+                echo "sync opens the pull request itself."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::$BRANCH is pushed, but this repository does not allow Actions to open pull requests. Open it by hand."
+            else
+              echo "::error::$BRANCH is pushed, but opening the pull request failed. See the run summary."
+              exit 1
+            fi
           fi
