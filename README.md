@@ -191,8 +191,10 @@ Review the diff, then merge it yourself.
 The synced revision is recorded in `addons/launcher/.launcher-sync.json`.
 
 A token scoped to `contents` is not allowed to write `.github/workflows/`, so the
-starter workflows are **not** synced. When they change upstream the sync says so
-in the pull request body, and you copy them across by hand.
+starter workflows are **not** synced. When they change upstream -- or when the
+template adds one you do not have -- the sync says so in the run summary of every
+sync run, and in the pull request body when one is opened. You copy them across
+by hand.
 
 > A pull request opened with `GITHUB_TOKEN` does not trigger other workflows, so
 > the sync job runs the import-and-boot check itself before opening the PR. If

@@ -115,16 +115,30 @@ jobs:
           BRANCH: launcher-sync
           BASE: ${{ github.event.repository.default_branch }}
           # Everything below comes from the TEMPLATE repository, not this one:
-          # SUBJECT is its HEAD commit subject, WORKFLOW_DRIFT a list of its
-          # workflow filenames. A `${{ }}` is substituted into the script as
-          # text before bash parses it, so interpolating either one directly
-          # would let a commit subject or a filename run commands here -- with
-          # this job's contents:write and pull-requests:write. Passed as env
-          # instead, they arrive as inert values that are never re-parsed.
+          # SUBJECT is its HEAD commit subject, WORKFLOW_DRIFT and
+          # WORKFLOW_MISSING are lists of its workflow filenames. A `${{ }}` is
+          # substituted into the script as text before bash parses it, so
+          # interpolating any of them directly would let a commit subject or a
+          # filename run commands here -- with this job's contents:write and
+          # pull-requests:write. Passed as env instead, they arrive as inert
+          # values that are never re-parsed.
+          #
+          # That rule covers this boundary only. It stops a hostile value being
+          # parsed as shell here; it does nothing about the value being created
+          # in the first place. A step output is written as `key=value` lines
+          # that the runner parses line by line, so a newline inside a value
+          # forges further outputs -- including an empty workflow_drift, which
+          # would erase the very warning below. ci/sync_launcher.sh closes that
+          # end twice over: an allowlist admitting only names the runner and a
+          # markdown renderer leave alone, and a heredoc delimiter on every
+          # output so that a newline in any value is contained rather than read
+          # as the start of another key.
           SHORT_COMMIT: ${{ steps.sync.outputs.short_commit }}
           COMMIT: ${{ steps.sync.outputs.commit }}
           SUBJECT: ${{ steps.sync.outputs.subject }}
           WORKFLOW_DRIFT: ${{ steps.sync.outputs.workflow_drift }}
+          WORKFLOW_MISSING: ${{ steps.sync.outputs.workflow_missing }}
+          WORKFLOW_REJECTED: ${{ steps.sync.outputs.workflow_rejected }}
           # GitHub-controlled and not attacker-influenced, but routed the same
           # way so the rule stays one a reviewer can check by eye: no `${{ }}`
           # anywhere inside a `run:` block.
@@ -150,12 +164,40 @@ jobs:
 
           **Review before merging** -- merging publishes a release to players."
 
-          if [[ -n "$WORKFLOW_DRIFT" ]]; then
+          # Two categories, reported separately. A workflow that is new upstream
+          # and absent here cannot be noticed any other way -- there is no local
+          # file to compare against, and nothing on disk to look at.
+          if [[ -n "$WORKFLOW_DRIFT$WORKFLOW_MISSING" ]]; then
+            DRIFT_LIST=""
+            if [[ -n "$WORKFLOW_DRIFT" ]]; then
+              DRIFT_LIST="${DRIFT_LIST}
+          - Changed upstream: \`$WORKFLOW_DRIFT\`"
+            fi
+            if [[ -n "$WORKFLOW_MISSING" ]]; then
+              DRIFT_LIST="${DRIFT_LIST}
+          - New upstream, not present here: \`$WORKFLOW_MISSING\`"
+            fi
             BODY="$BODY
 
           ---
-          **These workflows also changed upstream and must be copied by hand:** \`$WORKFLOW_DRIFT\`
-          A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves them alone."
+          **These workflows must be copied by hand.** A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves them alone.
+          ${DRIFT_LIST}"
+          fi
+
+          # Its own block, not a bullet in the list above: a rejected filename is
+          # not a workflow to copy, and folding it in produced a "copy these by
+          # hand" heading over an empty list whenever it was the only finding.
+          # Never named -- the filename is the hostile part; the count is all a
+          # human needs to know something is wrong upstream.
+          if [[ -n "$WORKFLOW_REJECTED" && "$WORKFLOW_REJECTED" != "0" ]]; then
+            BODY="$BODY
+
+          ---
+          > [!WARNING]
+          > **$WORKFLOW_REJECTED upstream workflow filename(s) are not plain names** and are not
+          > listed here. A workflow filename has no reason to contain a control character, a
+          > backtick or a percent escape -- treat this as a sign that the template repository
+          > has been tampered with."
           fi
 
           TITLE="Sync launcher @ $SHORT_COMMIT"

@@ -119,14 +119,17 @@ breakage. Use a personal access token instead if you want your full CI on it.
 ### The sync says my workflows have drifted
 
 Workflow files are the one thing that cannot be synced: a token scoped to
-`contents` is not allowed to write `.github/workflows/`. When the template
-changes them, the PR names which ones.
+`contents` is not allowed to write `.github/workflows/`. The sync names which
+ones, in the run summary of every sync run and in the PR body when one is
+opened, under two headings: *changed upstream* (you have the file, it differs)
+and *new upstream, not present here* (the template added or split a workflow
+and you do not have it at all).
 
 **Fix:** copy them across by hand.
 
 ```bash
 git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
-cp /tmp/lt/template/.github/workflows/*.yml .github/workflows/
+cp /tmp/lt/.github/workflows/*.yml .github/workflows/
 ```
 
 ### My change to the launcher disappeared

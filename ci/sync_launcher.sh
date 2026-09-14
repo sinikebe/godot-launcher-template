@@ -42,8 +42,173 @@ except Exception:
 ")"
 fi
 
+# GITHUB_TOKEN is not allowed to write .github/workflows/, so the starter
+# workflows cannot be synced automatically. Detect when they have drifted and
+# say so, rather than letting a game silently run year-old CI.
+#
+# Deliberately ABOVE the "already up to date" exit below. Workflows drift
+# independently of the launcher SHA -- that is the entire premise of the check
+# -- so running it after that exit made it unreachable in exactly the steady
+# state it was written for: once a game merges its sync pull request,
+# PREVIOUS_SHA equals SHA on every later scheduled run, and the check never ran
+# again.
+WORKFLOW_CHANGED=()
+WORKFLOW_MISSING=()
+WORKFLOW_REJECTED=0
+for candidate in "$WORK/template/.github/workflows/"*.yml; do
+	[[ -e "$candidate" ]] || continue
+	name="$(basename "$candidate")"
+	# This name comes from the TEMPLATE repository, so it is attacker-controlled
+	# if that repository is compromised. Git allows every byte but "/" and NUL in
+	# a filename, and the name reaches four sinks that each read something into
+	# it: $GITHUB_OUTPUT, parsed line by line, where a newline forges step outputs
+	# -- a forged empty workflow_drift erases this very warning; the job log, where
+	# a workflow command is recognised in either the ::cmd:: or the ##[cmd] form;
+	# and $GITHUB_STEP_SUMMARY and the pull request body, both rendered as markdown.
+	#
+	# An allowlist, not a denylist of dangerous characters, because "dangerous" is
+	# not a property of the byte -- it is a property of the sink, and the sinks
+	# decode. This guard was briefly relaxed to reject only control characters, on
+	# the reasoning that only a newline carries line meaning. That was wrong twice:
+	# the runner maps the three literal characters %0A to a newline when it
+	# unescapes an annotation, so a plain-ASCII name injects log lines; and a
+	# backtick closes the markdown code span these names are printed inside, after
+	# which GitHub's www. autolink turns the rest into a live link -- no "/" needed,
+	# which is the only character git itself forbids.
+	#
+	# A leading underscore is legal: _reusable.yml is the ordinary name for a
+	# called workflow, and an earlier version of this allowlist rejected it,
+	# hiding a real new workflow and announcing it as though it were hostile.
+	# GitHub loads any .yml in .github/workflows/ whatever it is named.
+	#
+	# .yaml is permitted here but unreachable while the glob above is *.yml only
+	# (see the drift-detection gaps issue); matching it now means the glob can be
+	# widened without this line silently rejecting everything it newly finds.
+	if [[ ! "$name" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*\.ya?ml$ ]]; then
+		WORKFLOW_REJECTED=$((WORKFLOW_REJECTED + 1))
+		continue
+	fi
+	mine=".github/workflows/${name}"
+	if [[ ! -f "$mine" ]]; then
+		# Upstream-only: the template added a workflow, or split an existing one
+		# in two. The old check required the file to exist here before comparing
+		# it, so this case was skipped entirely -- and it is the one kind of
+		# drift a game cannot notice for itself, because there is nothing on
+		# disk to look at.
+		WORKFLOW_MISSING+=("$name")
+	elif ! diff -q "$candidate" "$mine" >/dev/null 2>&1; then
+		WORKFLOW_CHANGED+=("$name")
+	fi
+done
+
+# "${array[*]}" joins on the first character of IFS and adds no separator at the
+# end. The previous string form accumulated "${name} " and carried a trailing
+# space into the pull request body, where it rendered inside the backticks.
+CHANGED_LIST=""
+MISSING_LIST=""
+if (( ${#WORKFLOW_CHANGED[@]} > 0 )); then
+	CHANGED_LIST="${WORKFLOW_CHANGED[*]}"
+fi
+if (( ${#WORKFLOW_MISSING[@]} > 0 )); then
+	MISSING_LIST="${WORKFLOW_MISSING[*]}"
+fi
+
+# Report to the job log and to the run summary.
+#
+# The run summary is what makes this reachable at all. When the launcher is
+# already up to date the workflow opens no pull request, and the PR body was
+# the only human-facing surface this note ever reached. $GITHUB_STEP_SUMMARY is
+# written here, by the script itself, so it does not depend on a later step
+# running.
+drift_report() {
+	if [[ -z "$CHANGED_LIST$MISSING_LIST" ]] && (( WORKFLOW_REJECTED == 0 )); then
+		return 0
+	fi
+
+	# ::warning:: rather than a plain echo: a sync run that finds nothing to sync
+	# is green and uneventful, and nobody opens the log of a green run. An
+	# annotation surfaces in the Actions list without one. Safe to build from these
+	# names only because the allowlist above admits nothing the runner or a
+	# markdown renderer decodes -- no %, no backtick, no @, no control character.
+	if [[ -n "$CHANGED_LIST" ]]; then
+		echo "::warning::Workflows changed upstream and must be copied by hand: ${CHANGED_LIST}"
+	fi
+	if [[ -n "$MISSING_LIST" ]]; then
+		echo "::warning::Workflows are new upstream and not present here; copy them by hand: ${MISSING_LIST}"
+	fi
+	if (( WORKFLOW_REJECTED > 0 )); then
+		echo "::warning::${WORKFLOW_REJECTED} upstream workflow filename(s) are not plain names and were not reported by name."
+	fi
+
+	[[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
+	{
+		# Guarded: a run whose only finding is a rejection would otherwise print
+		# this heading, the "leaves these alone" line, and then no list at all.
+		if [[ -n "$CHANGED_LIST$MISSING_LIST" ]]; then
+			echo "### Workflows need copying by hand"
+			echo
+			echo "A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves these alone:"
+			echo
+			if [[ -n "$CHANGED_LIST" ]]; then
+				echo "- **Changed upstream:** \`${CHANGED_LIST}\`"
+			fi
+			if [[ -n "$MISSING_LIST" ]]; then
+				echo "- **New upstream, not present here:** \`${MISSING_LIST}\`"
+			fi
+			echo
+			echo '```bash'
+			echo "git clone --depth 1 https://github.com/${TEMPLATE_REPO}.git /tmp/launcher-template"
+			echo "cp /tmp/launcher-template/.github/workflows/*.yml .github/workflows/"
+			echo "rm -rf /tmp/launcher-template"
+			echo '```'
+		fi
+		if (( WORKFLOW_REJECTED > 0 )); then
+			echo
+			echo "> [!WARNING]"
+			echo "> ${WORKFLOW_REJECTED} upstream workflow filename(s) are not plain names and are not named here."
+			echo "> A workflow filename has no reason to contain a control character, a backtick or a percent escape. Treat this as a sign the template repository has been tampered with."
+		fi
+	} >> "$GITHUB_STEP_SUMMARY" || echo "::warning::Could not write the run summary; the log above is the only copy."
+	# This function runs BEFORE the sync, and set -e would make the group above
+	# the function's exit status. A reporting failure must not become a total
+	# sync failure.
+	return 0
+}
+
+# Called on both paths below, exactly once each.
+emit_outputs() {
+	[[ -n "${GITHUB_OUTPUT:-}" ]] || return 0
+	# key<<DELIM / value / DELIM, with a delimiter no value can contain. The plain
+	# key=value form is read line by line by the runner, so a newline anywhere in
+	# a value starts a line the runner accepts as another output key. The guard in
+	# the drift loop already keeps newlines out of these two values; this closes
+	# the shape of the bug rather than one instance of it, and covers whatever the
+	# next output added here happens to be.
+	local delim
+	delim="ghadelim_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+	# A /dev/urandom that succeeds but yields nothing would leave the bare prefix.
+	# set -e does not fire on that, and a predictable delimiter is no delimiter:
+	# the whole defence is that no value can contain it. 9 prefix + 32 hex.
+	if (( ${#delim} != 41 )); then
+		echo "::error::Could not generate a unique delimiter for step outputs." >&2
+		exit 1
+	fi
+	{
+		printf 'commit<<%s\n%s\n%s\n'           "$delim" "$SHA"          "$delim"
+		printf 'short_commit<<%s\n%s\n%s\n'     "$delim" "$SHORT_SHA"    "$delim"
+		printf 'subject<<%s\n%s\n%s\n'          "$delim" "$SUBJECT"      "$delim"
+		printf 'previous<<%s\n%s\n%s\n'         "$delim" "$PREVIOUS_SHA" "$delim"
+		printf 'workflow_drift<<%s\n%s\n%s\n'   "$delim" "$CHANGED_LIST" "$delim"
+		printf 'workflow_missing<<%s\n%s\n%s\n' "$delim" "$MISSING_LIST" "$delim"
+		printf 'workflow_rejected<<%s\n%s\n%s\n' "$delim" "$WORKFLOW_REJECTED" "$delim"
+	} >> "$GITHUB_OUTPUT"
+}
+
+drift_report
+
 if [[ "$PREVIOUS_SHA" == "$SHA" ]]; then
 	echo "Already on ${SHORT_SHA}; nothing to do."
+	emit_outputs
 	exit 0
 fi
 
@@ -92,30 +257,6 @@ with open(record, "w", encoding="utf-8") as fh:
     fh.write("\n")
 PY
 
-# GITHUB_TOKEN is not allowed to write .github/workflows/, so the starter
-# workflows cannot be synced automatically. Detect when they have drifted and
-# say so, rather than letting a game silently run year-old CI.
-WORKFLOW_DRIFT=""
-for candidate in "$WORK/template/.github/workflows/"*.yml; do
-	[[ -e "$candidate" ]] || continue
-	name="$(basename "$candidate")"
-	mine=".github/workflows/${name}"
-	if [[ -f "$mine" ]] && ! diff -q "$candidate" "$mine" >/dev/null 2>&1; then
-		WORKFLOW_DRIFT+="${name} "
-	fi
-done
-if [[ -n "$WORKFLOW_DRIFT" ]]; then
-	echo "Workflows differ from the template: ${WORKFLOW_DRIFT}(copy them by hand)"
-fi
-
 echo "Synced launcher to ${SHORT_SHA} — ${SUBJECT}"
 
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-	{
-		echo "commit=${SHA}"
-		echo "short_commit=${SHORT_SHA}"
-		echo "subject=${SUBJECT}"
-		echo "previous=${PREVIOUS_SHA}"
-		echo "workflow_drift=${WORKFLOW_DRIFT}"
-	} >> "$GITHUB_OUTPUT"
-fi
+emit_outputs
