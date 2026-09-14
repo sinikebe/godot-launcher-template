@@ -1,0 +1,51 @@
+name: Launcher version
+
+# Fails a pull request that changes addons/launcher/ without bumping
+# LauncherVersion.VERSION. See ci/check_launcher_version.sh for why.
+#
+# Its own workflow rather than a job in ci.yml, for two reasons that both come
+# down to the label. It has to run on 'labeled', and ci.yml must not: a label
+# event there would create a run whose export job is skipped, and a skipped
+# required job reports to branch protection as satisfied -- so labelling a pull
+# request whose export had failed would launder it to green. And sharing a
+# concurrency group with ci.yml meant a label run and a push run could not both
+# survive; split into their own group here, the newest label state always wins.
+
+on:
+  pull_request:
+    # 'labeled' and 'unlabeled' are not in the default set, and this check reads
+    # a label. Without them, adding 'no-launcher-bump' triggers nothing, and a
+    # manual re-run replays the original payload where the label is still
+    # absent -- so the escape hatch would not work by either route.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launcher-version-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Launcher version bump
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          # The merge base has to be reachable to read the old VERSION out of it.
+          fetch-depth: 0
+
+      - name: Check the launcher version moved
+        env:
+          # Same rule as sync-launcher.yml: no `${{ }}` inside a `run:` block.
+          # A label name is author-controlled on any fork pull request, and
+          # `${{ }}` is substituted as text before bash parses it.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # Passed explicitly rather than inferred from the checked-out commit:
+          # the script must not have to guess which commit is under review.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LAUNCHER_VERSION_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'no-launcher-bump') }}
+        run: bash ci/check_launcher_version.sh "$BASE_SHA" "$HEAD_SHA"

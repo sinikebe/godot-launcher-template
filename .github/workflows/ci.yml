@@ -8,26 +8,13 @@ name: CI
 
 on:
   pull_request:
-    # 'labeled' and 'unlabeled' are not in the default set, and the launcher
-    # version check reads a label. Without them, adding 'no-launcher-bump'
-    # triggers nothing, and a manual re-run replays the original event payload
-    # where the label is still absent -- so the escape hatch the check tells you
-    # to use would not work by either route.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Label events are their own group. github.ref is refs/pull/N/merge for every
-  # pull_request activity type, so a 'labeled' run would otherwise land in the
-  # same group as a running 'synchronize' run and cancel it -- and since the
-  # export job skips label events, nothing would re-run it for that head. A
-  # skipped required job reports to branch protection as satisfied, so the
-  # cancelled export would have been replaced by something that reads as passing.
-  # Code runs still cancel each other, which is the behaviour worth keeping.
-  group: ci-${{ github.ref }}-${{ github.event.action == 'labeled' || github.event.action == 'unlabeled' }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -38,11 +25,6 @@ jobs:
   build:
     name: Export check
     runs-on: ubuntu-latest
-    # Labelling exists here only to re-run the launcher version check, which is
-    # a different job. Exporting an APK again because someone applied a label
-    # would burn minutes for nothing. (github.event.action is null on
-    # workflow_dispatch, so this stays true there.)
-    if: github.event.action != 'labeled' && github.event.action != 'unlabeled'
 
     steps:
       - name: Check out
@@ -141,33 +123,3 @@ jobs:
             build/content/*.pck
           if-no-files-found: error
           retention-days: 7
-
-  launcher-version:
-    name: Launcher version bump
-    runs-on: ubuntu-latest
-    # Its own job, not a step in the export check: this answers in seconds and
-    # the export takes minutes, and a missing version bump should not wait on an
-    # Android toolchain to be told.
-    #
-    # Pull requests only. The check is a comparison against a base branch, and
-    # workflow_dispatch has no base to compare against.
-    if: github.event_name == 'pull_request'
-
-    steps:
-      - name: Check out
-        uses: actions/checkout@v7
-        with:
-          # The base commit has to be reachable to read the old VERSION out of it.
-          fetch-depth: 0
-
-      - name: Check the launcher version moved
-        env:
-          # Same rule as sync-launcher.yml: no `${{ }}` inside a `run:` block.
-          # A label name is author-controlled on any fork pull request, and `${{ }}`
-          # is substituted as text before bash parses it.
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          # Passed explicitly rather than inferred from the checked-out commit:
-          # the script must not have to guess which commit is under review.
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          LAUNCHER_VERSION_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'no-launcher-bump') }}
-        run: bash ci/check_launcher_version.sh "$BASE_SHA" "$HEAD_SHA"

@@ -21,6 +21,7 @@ cd "$ROOT"
 VERSION_FILE="addons/launcher/launcher_version.gd"
 RECORD="addons/launcher/.launcher-sync.json"
 
+ARGC=$#
 BASE="${1:-}"
 HEAD_ARG="${2:-}"
 
@@ -55,6 +56,13 @@ die() { # every abort prints an annotation and exits non-zero
 # and a check that has silently stopped checking should say so where someone
 # scanning the Actions list can see it.
 if [[ -f "$RECORD" ]]; then
+	# Warn when this branch is what introduced the record. A game's genuine first
+	# sync adds it in the same pull request that brings the launcher in, so this
+	# cannot be an error -- but it is also the one way an author can switch the
+	# check off for their own pull request, so it does not pass silently.
+	if [[ -n "${1:-}" ]] && ! git cat-file -e "${1}:${RECORD}" 2>/dev/null; then
+		echo "::warning::${RECORD} is added by this branch, which turns the launcher bump check off for it. Expected on a game's first sync; unexpected anywhere else."
+	fi
 	echo "::notice::${RECORD} is present, so this repository syncs its launcher from upstream and VERSION is upstream's to set. Bump check skipped."
 	exit 0
 fi
@@ -74,7 +82,13 @@ fi
 # current also produces a two-parent HEAD, and there HEAD^2 is the main side, so
 # the merge base collapsed to main's tip and the diff came back empty. Green,
 # having compared nothing. The head is a fact the caller has; it is not guessed.
-if [[ -n "$HEAD_ARG" ]]; then
+if (( ARGC >= 2 )); then
+	# Passed, so it must be usable. An empty value here would otherwise fall
+	# through to HEAD -- the merge ref -- which is the shape this round removed,
+	# and the check would quietly credit someone else's bump to this branch.
+	if [[ -z "$HEAD_ARG" ]]; then
+		die "An empty head ref was passed; the launcher version was not checked."
+	fi
 	if ! HEAD_COMMIT="$(git rev-parse --verify --quiet "$HEAD_ARG^{commit}")"; then
 		die "Could not resolve the head ref '${HEAD_ARG}'; the launcher version was not checked."
 	fi
@@ -178,9 +192,22 @@ if [[ -z "$HEAD_VERSION" ]]; then
 		"" "Expected a line of the form:  const VERSION: String = \"x.y.z\""
 fi
 
+# The label is checked here, above the shape and ordering rules rather than
+# below them, because "your VERSION is malformed" is just as much a thing a
+# maintainer may want to wave through as "you did not bump". It still sits below
+# the aborts above, which are not judgements -- they are the check reporting it
+# could not run.
+if [[ "${LAUNCHER_VERSION_EXEMPT:-}" == "true" ]]; then
+	echo "::notice::addons/launcher/ changed with VERSION held at ${HEAD_VERSION}, by label."
+	exit 0
+fi
+
 if ! is_semver "$HEAD_VERSION"; then
-	die "VERSION is \"${HEAD_VERSION}\", which is not MAJOR.MINOR.PATCH." \
-		"" "A game reads this to say which launcher it is running. It has to be a version."
+	die "VERSION is \"${HEAD_VERSION}\", which is not MAJOR.MINOR.PATCH with no leading zeros." \
+		"" \
+		"Write 2026.9.14, not 2026.09.14: a leading zero makes \"1.0.010\" and \"1.0.10\"" \
+		"two spellings of one version. If this really should not change, label the" \
+		"pull request 'no-launcher-bump'."
 fi
 
 # "Empty at base" is three different facts, and only one of them is benign.
@@ -198,21 +225,23 @@ if [[ -z "$BASE_VERSION" ]]; then
 		"Refusing to treat an unreadable base version as \"the launcher is new\"."
 fi
 
-if is_semver "$BASE_VERSION" && version_gt "$HEAD_VERSION" "$BASE_VERSION"; then
-	echo "VERSION bumped ${BASE_VERSION} -> ${HEAD_VERSION}. ${#CHANGED[@]} launcher file(s) changed."
-	exit 0
-fi
+# What a maintainer may WRITE is strict; what can be ORDERED is not the same
+# question. Tightening is_semver moved every leading-zero base version out of
+# the ordered comparison and into the "any change is progress" branch below,
+# where going backwards passed: a base of 2026.08.30 accepted a head of 0.0.0
+# with the launcher gutted. version_gt strips leading zeros precisely so it can
+# order these, so it is asked whenever the base is orderable at all.
+is_orderable() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
-# Base is not semver (historical) -- any valid semver that differs is progress.
-if ! is_semver "$BASE_VERSION" && [[ "$BASE_VERSION" != "$HEAD_VERSION" ]]; then
+if is_orderable "$BASE_VERSION"; then
+	if version_gt "$HEAD_VERSION" "$BASE_VERSION"; then
+		echo "VERSION bumped ${BASE_VERSION} -> ${HEAD_VERSION}. ${#CHANGED[@]} launcher file(s) changed."
+		exit 0
+	fi
+elif [[ "$BASE_VERSION" != "$HEAD_VERSION" ]]; then
+	# Base is not even three numbers -- nothing to order against, so any change
+	# to a well-formed version is the best signal available.
 	echo "VERSION moved ${BASE_VERSION} -> ${HEAD_VERSION}. ${#CHANGED[@]} launcher file(s) changed."
-	exit 0
-fi
-
-# Set by the workflow from a pull request label. Checked last, so the log still
-# records what changed and which version stood still.
-if [[ "${LAUNCHER_VERSION_EXEMPT:-}" == "true" ]]; then
-	echo "::notice::addons/launcher/ changed with VERSION held at ${HEAD_VERSION}, by label."
 	exit 0
 fi
 
