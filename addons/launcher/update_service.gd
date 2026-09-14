@@ -13,7 +13,12 @@ extends Node
 ## Every download is verified against the SHA-256 in the manifest before it is
 ## allowed anywhere near the install step.
 
-const USER_AGENT := "GodotLauncher/1.0 (+https://github.com/sinikebe/godot-launcher-template)"
+const LauncherVersion := preload("res://addons/launcher/launcher_version.gd")
+## Sent on every request. Derived rather than written out, because a second
+## hand-maintained version string is a second one to forget: this read
+## "GodotLauncher/1.0" for the whole life of the launcher, and unlike the menu
+## stamp it goes out on the wire.
+const USER_AGENT := "GodotLauncher/" + LauncherVersion.VERSION + " (+https://github.com/sinikebe/godot-launcher-template)"
 ## Last fetched changelog, so patch notes stay readable with no network.
 const CHANGELOG_CACHE_PATH := "user://changelog.json"
 ## HTTPRequest.timeout is total wall-clock from request(), not an idle timeout:
