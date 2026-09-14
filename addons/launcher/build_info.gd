@@ -194,8 +194,17 @@ func launcher_source() -> String:
 
 
 ## "launcher <semver> · <template commit>", for bug reports.
+##
+## COMMIT defaults to "local" rather than "", so the is_empty() test this used to
+## make could never fire, and the demo rendered "launcher 1.0.0  ·  local" -- the
+## same sentinel display_version() suppresses one line above. Both tests are kept:
+## a hand-edited copy can leave it empty.
+##
+## This reports the launcher the BINARY shipped. After a content pack mounts, the
+## launcher code actually running is the pack's, which can be a different version.
+## Closing that is a bigger change than #34 asked for; it is filed separately.
 func launcher_version() -> String:
 	var text := "launcher %s" % LauncherVersion.VERSION
-	if not LauncherVersion.COMMIT.is_empty():
+	if not LauncherVersion.COMMIT.is_empty() and LauncherVersion.COMMIT != "local":
 		text += "  ·  %s" % LauncherVersion.COMMIT
 	return text

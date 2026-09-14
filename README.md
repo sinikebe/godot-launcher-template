@@ -165,9 +165,21 @@ failing silently; connect `play_requested` to take the action over entirely.
 ### Version stamp
 
 The corner of the launcher shows two lines: the game's version on top, and the
-launcher's underneath — `launcher 1.0.0 · 0a0d113`. The semver comes from the
-template, the short hash is the template commit the game synced. It is the first
-thing worth asking for in a launcher bug report.
+launcher's underneath. The semver comes from the template, the short hash is the
+template commit the game synced:
+
+```
+v0.2.0  ·  bin 2  ·  content 13  ·  6721df5d
+launcher 2.0.0  ·  b0f419d7
+```
+
+Inside the template and in a hand-vendored copy there is no synced commit, so
+the second line is just `launcher 2.0.0`. It is the first thing worth asking for
+in a launcher bug report.
+
+`VERSION` is hand-maintained, and `ci/check_launcher_version.sh` fails a pull
+request that changes `addons/launcher/` without moving it — label the pull
+request `no-launcher-bump` for a change that genuinely does not warrant one.
 
 ### Look
 
@@ -206,7 +218,7 @@ by hand.
 |---|---|
 | `addons/launcher/` | **The launcher.** Synced into games; never edit downstream |
 | `addons/launcher/launcher_config.gd` | Every knob, documented inline |
-| `addons/launcher/launcher_version.gd` | The launcher's own version; bump `VERSION` when it changes meaningfully |
+| `addons/launcher/launcher_version.gd` | The launcher's own version; CI fails a launcher change that does not bump `VERSION` |
 | `ci/` | Build and release scripts. Also synced |
 | `template/` | The one starter file a game copies **once**: `export_presets.cfg` |
 | `.github/workflows/` | The template's own CI — and exactly what a game gets |
