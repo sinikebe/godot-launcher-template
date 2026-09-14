@@ -8,6 +8,12 @@ name: CI
 
 on:
   pull_request:
+    # 'labeled' and 'unlabeled' are not in the default set, and the launcher
+    # version check reads a label. Without them, adding 'no-launcher-bump'
+    # triggers nothing, and a manual re-run replays the original event payload
+    # where the label is still absent -- so the escape hatch the check tells you
+    # to use would not work by either route.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +31,11 @@ jobs:
   build:
     name: Export check
     runs-on: ubuntu-latest
+    # Labelling exists here only to re-run the launcher version check, which is
+    # a different job. Exporting an APK again because someone applied a label
+    # would burn minutes for nothing. (github.event.action is null on
+    # workflow_dispatch, so this stays true there.)
+    if: github.event.action != 'labeled' && github.event.action != 'unlabeled'
 
     steps:
       - name: Check out

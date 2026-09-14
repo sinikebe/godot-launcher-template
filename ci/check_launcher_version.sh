@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Fails a pull request that changes addons/launcher/ without moving
+# Fails a pull request that changes addons/launcher/ without bumping
 # LauncherVersion.VERSION.
 #
-# VERSION is hand-maintained -- the sync stamps COMMIT, SYNCED_AT and SOURCE,
-# and deliberately leaves VERSION alone, because it is the template's to declare.
+# VERSION is hand-maintained -- the sync stamps COMMIT, SYNCED_AT and SOURCE, and
+# deliberately leaves VERSION alone, because it is the template's to declare.
 # Hand-maintained meant nothing maintained it: it sat at 1.0.0 across four
 # changes to addons/launcher/, one of which removed a public constant
 # (UpdateService.REQUEST_TIMEOUT). Code written against "launcher 1.0.0" failed
 # against "launcher 1.0.0".
 #
-# COMMIT answers "which revision" precisely once a game has synced. VERSION is
-# the half meant to be readable by a human, and to survive being vendored by
-# hand, where COMMIT stays "local" forever.
+# Every failure path here is loud. A check that cannot see the diff must not
+# report success: that is the same shape as the bug it exists to prevent.
 #
 #   bash ci/check_launcher_version.sh <base-ref> [head-ref]
 set -euo pipefail
@@ -23,68 +22,155 @@ VERSION_FILE="addons/launcher/launcher_version.gd"
 RECORD="addons/launcher/.launcher-sync.json"
 
 BASE="${1:-}"
-HEAD="${2:-HEAD}"
+HEAD_ARG="${2:-}"
 
 if [[ -z "$BASE" ]]; then
 	echo "usage: bash ci/check_launcher_version.sh <base-ref> [head-ref]" >&2
 	exit 2
 fi
 
+die() { # every abort prints an annotation and exits non-zero
+	echo "::error file=${VERSION_FILE}::$1" >&2
+	shift
+	[[ $# -gt 0 ]] && printf '%s\n' "$@" >&2
+	exit 1
+}
+
 # Only the repository that OWNS the launcher can set its version.
 #
 # ci/ is synced into consuming games wholesale, so this script travels with it.
 # In a game, addons/launcher/ changes only by sync -- and the sync writes COMMIT,
-# never VERSION. Enforcing the rule there would fail every sync pull request,
-# blocking the launcher update it exists to deliver, over a value the game has
-# no business setting. The sync record is the distinction, and an intrinsic one:
-# it exists only in a repository that pulled the launcher in from somewhere else,
-# so this needs no hardcoded repository name and survives a fork of the template.
+# never VERSION. Enforcing there would fail every sync pull request, blocking the
+# launcher update it exists to deliver, over a value the game cannot set. The
+# sync record is the distinction, and an intrinsic one: it exists only in a
+# repository that pulled the launcher in from elsewhere, so this needs no
+# hardcoded repository name and survives a fork of the template.
+#
+# A game created from the template has no record until its first sync, so in that
+# window a hand edit to addons/launcher/ is asked for a bump it should not have
+# to make. The label below is the way out, and the window closes on the next
+# scheduled sync.
+#
+# ::notice:: rather than a bare echo: skipping is how this check stops checking,
+# and a check that has silently stopped checking should say so where someone
+# scanning the Actions list can see it.
 if [[ -f "$RECORD" ]]; then
-	echo "This repository syncs its launcher from upstream; VERSION is upstream's to set."
-	echo "Skipping the bump check."
+	echo "::notice::This repository syncs its launcher from upstream; VERSION is upstream's to set. Bump check skipped."
 	exit 0
 fi
 
-# Two refs are compared, so uncommitted work is invisible. In CI that is exactly
-# right -- the pull request's changes are commits. Run by hand against a dirty
-# tree it would pass by not looking, which is the same shape as the bug this
-# check exists to prevent, so say so.
-if [[ "$HEAD" == "HEAD" ]] && ! git diff --quiet -- addons/launcher/; then
+# --- What this pull request actually contributes ----------------------------
+#
+# NOT `git diff <base.sha> HEAD`. On a pull_request run the checkout is
+# refs/pull/N/merge, and base.sha is a snapshot from when the event fired --
+# replayed unchanged by every "Re-run jobs". Two-dot against a stale base tip
+# reports everything that landed on the base branch since, so a pull request can
+# pass by riding a bump someone else merged. Diff from the merge base of the
+# pull request's own head instead, which is the same in both cases.
+if [[ -n "$HEAD_ARG" ]]; then
+	HEAD_COMMIT="$(git rev-parse --verify "$HEAD_ARG^{commit}")"
+elif git rev-parse --verify --quiet 'HEAD^2' >/dev/null; then
+	# Two parents: this is the merge ref, and the second parent is the branch
+	# under review.
+	HEAD_COMMIT="$(git rev-parse 'HEAD^2')"
+else
+	HEAD_COMMIT="$(git rev-parse HEAD)"
+fi
+
+if [[ -z "$HEAD_ARG" ]] && ! git diff --quiet -- addons/launcher/; then
 	echo "note: addons/launcher/ has uncommitted changes. This compares commits and will not see them." >&2
 fi
 
-# Which files under addons/launcher/ this pull request touches.
-#
+if ! MERGE_BASE="$(git merge-base "$BASE" "$HEAD_COMMIT" 2>/dev/null)"; then
+	die "Could not find a merge base between ${BASE} and ${HEAD_COMMIT}; the launcher version was not checked." \
+		"" \
+		"A shallow checkout cannot compute one -- the job needs 'fetch-depth: 0' --" \
+		"and neither can a base ref that is no longer reachable. Failing rather than" \
+		"passing: a check that cannot see the diff has not checked anything."
+fi
+
+if ! DIFF="$(git diff --name-only "$MERGE_BASE" "$HEAD_COMMIT" -- addons/launcher/ 2>/dev/null)"; then
+	die "Could not diff addons/launcher/ between ${MERGE_BASE} and ${HEAD_COMMIT}; the launcher version was not checked."
+fi
+
 # .uid sidecars are regenerated by the Godot editor and carry no behaviour, so a
-# change confined to them is not a launcher change. They are excluded from the
-# trigger, not from the diff: a .uid that moves alongside real edits is fine, it
-# just cannot be the only thing that moved.
-mapfile -t CHANGED < <(git diff --name-only "$BASE" "$HEAD" -- addons/launcher/ | grep -v '\.uid$' || true)
+# change confined to them is not a launcher change. Excluded from the trigger,
+# not from the diff: a .uid that moves alongside real edits is fine, it just
+# cannot be the only thing that moved.
+CHANGED=()
+while IFS= read -r path; do
+	[[ -n "$path" ]] || continue
+	[[ "$path" == *.uid ]] && continue
+	CHANGED+=("$path")
+done <<< "$DIFF"
 
 if (( ${#CHANGED[@]} == 0 )); then
 	echo "No behavioural change under addons/launcher/; nothing to check."
 	exit 0
 fi
 
-read_version() { # $1 = git ref
-	git show "$1:$VERSION_FILE" 2>/dev/null \
-		| sed -n 's/^const VERSION: String = "\(.*\)"$/\1/p' \
-		| head -1
+# Absent at a ref is not an error: the launcher may be added by this pull
+# request, or removed by it. `git show` exits 128 there, which under
+# `set -o pipefail` would kill the script before it could say anything.
+read_version() { # $1 = git ref -- prints the version, or nothing if unreadable
+	local text
+	text="$(git show "$1:$VERSION_FILE" 2>/dev/null)" || return 0
+	# awk not `sed | head`: one process, so no SIGPIPE for pipefail to promote.
+	awk -F'"' '/^const VERSION: String = /{print $2; exit}' <<< "$text"
 }
 
-# Empty at base means the file did not exist there -- a launcher being added for
-# the first time. Any VERSION at head differs from that, which is the right
-# answer rather than a special case.
-BASE_VERSION="$(read_version "$BASE")"
-HEAD_VERSION="$(read_version "$HEAD")"
+BASE_VERSION="$(read_version "$MERGE_BASE")"
+HEAD_VERSION="$(read_version "$HEAD_COMMIT")"
 
-if [[ -z "$HEAD_VERSION" ]]; then
-	echo "::error file=${VERSION_FILE}::Could not read VERSION from ${VERSION_FILE}. Expected a line of the form: const VERSION: String = \"x.y.z\""
-	exit 1
+VERSION_LINE="$(awk '/^const VERSION: String = /{print NR; exit}' "$VERSION_FILE" 2>/dev/null || true)"
+[[ -n "$VERSION_LINE" ]] || VERSION_LINE=1
+
+is_semver() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+
+version_gt() { # $1 > $2, compared numerically per component
+	local -a a b
+	IFS=. read -ra a <<< "$1"
+	IFS=. read -ra b <<< "$2"
+	local i
+	for i in 0 1 2; do
+		(( ${a[i]:-0} > ${b[i]:-0} )) && return 0
+		(( ${a[i]:-0} < ${b[i]:-0} )) && return 1
+	done
+	return 1
+}
+
+# Removing the launcher wholesale is a legitimate thing to do, and there is no
+# version left to bump.
+if [[ -z "$HEAD_VERSION" ]] && ! git cat-file -e "${HEAD_COMMIT}:${VERSION_FILE}" 2>/dev/null; then
+	echo "${VERSION_FILE} is gone at the head commit; nothing to bump."
+	exit 0
 fi
 
-if [[ "$BASE_VERSION" != "$HEAD_VERSION" ]]; then
-	echo "VERSION moved ${BASE_VERSION:-(absent)} -> ${HEAD_VERSION}. ${#CHANGED[@]} launcher file(s) changed."
+if [[ -z "$HEAD_VERSION" ]]; then
+	die "Could not read VERSION from ${VERSION_FILE}." \
+		"" "Expected a line of the form:  const VERSION: String = \"x.y.z\""
+fi
+
+if ! is_semver "$HEAD_VERSION"; then
+	die "VERSION is \"${HEAD_VERSION}\", which is not MAJOR.MINOR.PATCH." \
+		"" "A game reads this to say which launcher it is running. It has to be a version."
+fi
+
+# Empty base version means the file did not exist there -- the launcher is being
+# added. Any valid semver is a bump from nothing.
+if [[ -z "$BASE_VERSION" ]]; then
+	echo "Launcher added at VERSION ${HEAD_VERSION}. ${#CHANGED[@]} file(s)."
+	exit 0
+fi
+
+if is_semver "$BASE_VERSION" && version_gt "$HEAD_VERSION" "$BASE_VERSION"; then
+	echo "VERSION bumped ${BASE_VERSION} -> ${HEAD_VERSION}. ${#CHANGED[@]} launcher file(s) changed."
+	exit 0
+fi
+
+# Base is not semver (historical) -- any valid semver that differs is progress.
+if ! is_semver "$BASE_VERSION" && [[ "$BASE_VERSION" != "$HEAD_VERSION" ]]; then
+	echo "VERSION moved ${BASE_VERSION} -> ${HEAD_VERSION}. ${#CHANGED[@]} launcher file(s) changed."
 	exit 0
 fi
 
@@ -95,19 +181,25 @@ if [[ "${LAUNCHER_VERSION_EXEMPT:-}" == "true" ]]; then
 	exit 0
 fi
 
+if [[ "$BASE_VERSION" == "$HEAD_VERSION" ]]; then
+	HEADLINE="addons/launcher/ changed but LauncherVersion.VERSION is still ${HEAD_VERSION}."
+else
+	HEADLINE="LauncherVersion.VERSION went backwards, ${BASE_VERSION} -> ${HEAD_VERSION}."
+fi
+
 {
-	echo "::error file=${VERSION_FILE},line=10::addons/launcher/ changed but LauncherVersion.VERSION is still ${HEAD_VERSION}. Bump it, or label the pull request 'no-launcher-bump'."
+	echo "::error file=${VERSION_FILE},line=${VERSION_LINE}::${HEADLINE} Bump it, or label the pull request 'no-launcher-bump'."
 	echo
 	echo "These launcher files changed:"
 	printf '  %s\n' "${CHANGED[@]}"
 	echo
-	echo "VERSION is ${HEAD_VERSION} on both sides. Which component moves is a judgement:"
+	echo "Which component moves is a judgement:"
 	echo "  MAJOR  a game's existing code stops compiling -- a removed or renamed const,"
 	echo "         signal, or exported property, or a changed method signature"
 	echo "  MINOR  new public surface that existing code does not have to care about"
 	echo "  PATCH  a fix with no interface change"
 	echo
-	echo "If this genuinely does not warrant a bump -- a comment, a typo -- put the"
-	echo "'no-launcher-bump' label on the pull request and re-run."
+	echo "If this genuinely does not warrant a bump -- a comment, a typo -- add the"
+	echo "'no-launcher-bump' label. Labelling re-runs this check on its own."
 } >&2
 exit 1
