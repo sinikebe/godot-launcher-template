@@ -284,8 +284,12 @@ func _refresh_update_ui() -> void:
 	_update_button.disabled = busy
 
 	# A fresh install that has never reached the network has no notes to show,
-	# and a button that only ever opens an empty dialog is worse than no button.
-	_notes_button.visible = not UpdateService.full_changelog().is_empty()
+	# and a button that only opens "nothing recorded yet" is worse than no button.
+	#
+	# has_notes(), not full_changelog().is_empty(): the latter counts entries the
+	# dialog then skips for having no changes, which is exactly what a release of
+	# nothing but chore commits produces.
+	_notes_button.visible = UpdateService.has_notes()
 
 	match UpdateService.state:
 		UpdateService.State.BINARY_READY:
