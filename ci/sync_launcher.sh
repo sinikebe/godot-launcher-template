@@ -60,13 +60,20 @@ for candidate in "$WORK/template/.github/workflows/"*.yml; do
 	name="$(basename "$candidate")"
 	# This name comes from the TEMPLATE repository, so it is attacker-controlled
 	# if that repository is compromised. Git allows every byte but "/" and NUL in
-	# a filename, and this one reaches three places that give a newline meaning:
+	# a filename, and this one reaches places that give a NEWLINE meaning:
 	# $GITHUB_OUTPUT, which the runner parses line by line -- so an embedded
 	# newline forges step outputs, and a forged empty workflow_drift erases this
-	# very warning -- plus $GITHUB_STEP_SUMMARY and a pull request body, both
-	# rendered as markdown. A real workflow filename is none of those things, so
-	# anything else is counted and never echoed.
-	if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.yml$ ]]; then
+	# very warning -- and the job log, where a line starting with :: is a workflow
+	# command.
+	#
+	# Control characters, and only control characters, because only they carry
+	# that meaning. This guard was first written as a plain-name allowlist
+	# ([A-Za-z0-9._-]), which was wrong twice over: GitHub loads ANY .yml file in
+	# .github/workflows/ whatever it is called, so the allowlist silently hid a
+	# legitimate _reusable.yml -- the usual name for a called workflow -- from the
+	# very check this exists to perform, and announced it as though the template
+	# had been tampered with.
+	if [[ "$name" == *[[:cntrl:]]* ]]; then
 		WORKFLOW_REJECTED=$((WORKFLOW_REJECTED + 1))
 		continue
 	fi
@@ -118,27 +125,37 @@ drift_report() {
 		echo "::warning::Workflows are new upstream and not present here; copy them by hand: ${MISSING_LIST}"
 	fi
 	if (( WORKFLOW_REJECTED > 0 )); then
-		echo "::warning::${WORKFLOW_REJECTED} upstream workflow filename(s) are not plain names; not reported by name."
+		echo "::warning::${WORKFLOW_REJECTED} upstream workflow filename(s) contain control characters and were not reported by name."
 	fi
 
 	[[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
 	{
-		echo "### Workflows need copying by hand"
-		echo
-		echo "A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves these alone:"
-		echo
-		if [[ -n "$CHANGED_LIST" ]]; then
-			echo "- **Changed upstream:** \`${CHANGED_LIST}\`"
+		# Guarded: a run whose only finding is a rejection would otherwise print
+		# this heading, the "leaves these alone" line, and then no list at all.
+		if [[ -n "$CHANGED_LIST$MISSING_LIST" ]]; then
+			echo "### Workflows need copying by hand"
+			echo
+			echo "A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves these alone:"
+			echo
+			if [[ -n "$CHANGED_LIST" ]]; then
+				echo "- **Changed upstream:** \`${CHANGED_LIST}\`"
+			fi
+			if [[ -n "$MISSING_LIST" ]]; then
+				echo "- **New upstream, not present here:** \`${MISSING_LIST}\`"
+			fi
+			echo
+			echo '```bash'
+			echo "git clone --depth 1 https://github.com/${TEMPLATE_REPO}.git /tmp/launcher-template"
+			echo "cp /tmp/launcher-template/.github/workflows/*.yml .github/workflows/"
+			echo "rm -rf /tmp/launcher-template"
+			echo '```'
 		fi
-		if [[ -n "$MISSING_LIST" ]]; then
-			echo "- **New upstream, not present here:** \`${MISSING_LIST}\`"
+		if (( WORKFLOW_REJECTED > 0 )); then
+			echo
+			echo "> [!WARNING]"
+			echo "> ${WORKFLOW_REJECTED} upstream workflow filename(s) contain control characters and are not named here."
+			echo "> A workflow filename has no reason to contain one. Treat it as a sign the template repository has been tampered with."
 		fi
-		echo
-		echo '```bash'
-		echo "git clone --depth 1 https://github.com/${TEMPLATE_REPO}.git /tmp/launcher-template"
-		echo "cp /tmp/launcher-template/.github/workflows/*.yml .github/workflows/"
-		echo "rm -rf /tmp/launcher-template"
-		echo '```'
 	} >> "$GITHUB_STEP_SUMMARY" || echo "::warning::Could not write the run summary; the log above is the only copy."
 	# This function runs BEFORE the sync, and set -e would make the group above
 	# the function's exit status. A reporting failure must not become a total
@@ -157,6 +174,13 @@ emit_outputs() {
 	# next output added here happens to be.
 	local delim
 	delim="ghadelim_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+	# A /dev/urandom that succeeds but yields nothing would leave the bare prefix.
+	# set -e does not fire on that, and a predictable delimiter is no delimiter:
+	# the whole defence is that no value can contain it. 9 prefix + 32 hex.
+	if (( ${#delim} != 41 )); then
+		echo "::error::Could not generate a unique delimiter for step outputs." >&2
+		exit 1
+	fi
 	{
 		printf 'commit<<%s\n%s\n%s\n'           "$delim" "$SHA"          "$delim"
 		printf 'short_commit<<%s\n%s\n%s\n'     "$delim" "$SHORT_SHA"    "$delim"
@@ -164,6 +188,7 @@ emit_outputs() {
 		printf 'previous<<%s\n%s\n%s\n'         "$delim" "$PREVIOUS_SHA" "$delim"
 		printf 'workflow_drift<<%s\n%s\n%s\n'   "$delim" "$CHANGED_LIST" "$delim"
 		printf 'workflow_missing<<%s\n%s\n%s\n' "$delim" "$MISSING_LIST" "$delim"
+		printf 'workflow_rejected<<%s\n%s\n%s\n' "$delim" "$WORKFLOW_REJECTED" "$delim"
 	} >> "$GITHUB_OUTPUT"
 }
 

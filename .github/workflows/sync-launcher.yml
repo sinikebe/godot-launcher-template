@@ -136,6 +136,7 @@ jobs:
           SUBJECT: ${{ steps.sync.outputs.subject }}
           WORKFLOW_DRIFT: ${{ steps.sync.outputs.workflow_drift }}
           WORKFLOW_MISSING: ${{ steps.sync.outputs.workflow_missing }}
+          WORKFLOW_REJECTED: ${{ steps.sync.outputs.workflow_rejected }}
           # GitHub-controlled and not attacker-influenced, but routed the same
           # way so the rule stays one a reviewer can check by eye: no `${{ }}`
           # anywhere inside a `run:` block.
@@ -164,7 +165,7 @@ jobs:
           # Two categories, reported separately. A workflow that is new upstream
           # and absent here cannot be noticed any other way -- there is no local
           # file to compare against, and nothing on disk to look at.
-          if [[ -n "$WORKFLOW_DRIFT$WORKFLOW_MISSING" ]]; then
+          if [[ -n "$WORKFLOW_DRIFT$WORKFLOW_MISSING" ]] || [[ -n "$WORKFLOW_REJECTED" && "$WORKFLOW_REJECTED" != "0" ]]; then
             DRIFT_LIST=""
             if [[ -n "$WORKFLOW_DRIFT" ]]; then
               DRIFT_LIST="${DRIFT_LIST}
@@ -173,6 +174,12 @@ jobs:
             if [[ -n "$WORKFLOW_MISSING" ]]; then
               DRIFT_LIST="${DRIFT_LIST}
           - New upstream, not present here: \`$WORKFLOW_MISSING\`"
+            fi
+            # Never names them: the filenames are the hostile part. The count
+            # is enough for a human to know something is wrong upstream.
+            if [[ -n "$WORKFLOW_REJECTED" && "$WORKFLOW_REJECTED" != "0" ]]; then
+              DRIFT_LIST="${DRIFT_LIST}
+          - **$WORKFLOW_REJECTED upstream filename(s) contain control characters** and are not named here. A workflow filename has no reason to contain one -- treat it as a sign the template repository has been tampered with."
             fi
             BODY="$BODY
 
