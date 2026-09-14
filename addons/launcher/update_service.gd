@@ -583,26 +583,37 @@ func history_text(max_lines: int = 400) -> String:
 	return _format_entries(full_changelog(), max_lines, true)
 
 
-## Whether history_text() would return anything -- the question to ask before
+## Whether history_text() would render anything -- the question to ask before
 ## offering to show it.
 ##
 ## Not the same question as full_changelog().is_empty(). That counts entries;
-## _format_entries skips any whose "changes" is missing or an empty array, so a
-## history of nothing but chore-only releases is non-empty by one test and
-## renders as "" by the other. ci/collect_changes.sh drops chore/ci/bump/wip/
-## revert subjects and ci/make_manifest.py emits the release entry regardless,
-## so "changes": [] is something the pipeline really ships.
+## the formatter skips any with nothing to say, so a history of nothing but
+## chore-only releases is non-empty by one test and renders as "" by the other.
+## ci/collect_changes.sh drops chore/ci/bump/wip/revert subjects and
+## ci/make_manifest.py emits the release entry regardless, so "changes": [] is
+## something the pipeline really ships.
 ##
 ## Cheaper than formatting the history to find out: one full_changelog() plus a
 ## scan that stops at the first entry with content, rather than building every
 ## line of every entry and measuring the result.
+##
+## Exact for history_text() at any max_lines of 1 or more, which is every call
+## it has -- a max_lines of 0 would drop even the first heading and render "".
 func has_notes() -> bool:
 	for entry: Dictionary in full_changelog():
-		# The same test _format_entries makes, inverted.
-		var changes: Variant = entry.get("changes", [])
-		if changes is Array and not changes.is_empty():
+		if _entry_has_changes(entry):
 			return true
 	return false
+
+
+## Whether an entry contributes anything to rendered notes.
+##
+## Shared so the gate and the formatter cannot answer it differently -- them
+## disagreeing is what made the "What's new" button open a dialog with nothing
+## in it. "changes" missing, not an Array, or empty all mean the same thing.
+func _entry_has_changes(entry: Dictionary) -> bool:
+	var changes: Variant = entry.get("changes", [])
+	return changes is Array and not changes.is_empty()
 
 
 func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> String:
@@ -610,9 +621,9 @@ func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> St
 	var dropped := 0
 
 	for entry: Dictionary in entries:
-		var changes: Variant = entry.get("changes", [])
-		if not changes is Array or changes.is_empty():
+		if not _entry_has_changes(entry):
 			continue
+		var changes: Array = entry.get("changes", [])
 
 		var version := int(entry.get("content_version", 0))
 		var heading := "v%s  ·  build %d" % [entry.get("version_name", "?"), version]

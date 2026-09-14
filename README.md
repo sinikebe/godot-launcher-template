@@ -170,11 +170,11 @@ template commit the game synced:
 
 ```
 v0.2.0  ·  bin 2  ·  content 13  ·  6721df5d
-launcher 2.0.0  ·  b0f419d7
+launcher 2.1.0  ·  b0f419d7
 ```
 
 Inside the template and in a hand-vendored copy there is no synced commit, so
-the second line is just `launcher 2.0.0`. It is the first thing worth asking for
+the second line is just `launcher 2.1.0`. It is the first thing worth asking for
 in a launcher bug report.
 
 `VERSION` is hand-maintained, and `ci/check_launcher_version.sh` fails a pull

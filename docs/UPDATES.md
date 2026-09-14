@@ -124,8 +124,11 @@ applies directly — an empty dialog is worse than no dialog.
 ### Reading them at any time
 
 **What's new** in the update bar opens the full history, whether or not an
-update is pending, with the running build marked. It works with no network,
-from two sources:
+update is pending, with the running build marked. It is hidden when neither
+source below has anything to show -- a button that only opens "nothing recorded
+yet" is worse than no button, and a release of nothing but chore commits ships
+an entry with an empty `changes` list. It works with no network, from two
+sources:
 
 - the changelog from the last successful check, cached at
   `user://changelog.json`;
