@@ -129,8 +129,10 @@ jobs:
           # that the runner parses line by line, so a newline inside a value
           # forges further outputs -- including an empty workflow_drift, which
           # would erase the very warning below. ci/sync_launcher.sh closes that
-          # end: it rejects filenames that are not plain names, and writes every
-          # output with a heredoc delimiter.
+          # end twice over: an allowlist admitting only names the runner and a
+          # markdown renderer leave alone, and a heredoc delimiter on every
+          # output so that a newline in any value is contained rather than read
+          # as the start of another key.
           SHORT_COMMIT: ${{ steps.sync.outputs.short_commit }}
           COMMIT: ${{ steps.sync.outputs.commit }}
           SUBJECT: ${{ steps.sync.outputs.subject }}
@@ -165,7 +167,7 @@ jobs:
           # Two categories, reported separately. A workflow that is new upstream
           # and absent here cannot be noticed any other way -- there is no local
           # file to compare against, and nothing on disk to look at.
-          if [[ -n "$WORKFLOW_DRIFT$WORKFLOW_MISSING" ]] || [[ -n "$WORKFLOW_REJECTED" && "$WORKFLOW_REJECTED" != "0" ]]; then
+          if [[ -n "$WORKFLOW_DRIFT$WORKFLOW_MISSING" ]]; then
             DRIFT_LIST=""
             if [[ -n "$WORKFLOW_DRIFT" ]]; then
               DRIFT_LIST="${DRIFT_LIST}
@@ -175,17 +177,27 @@ jobs:
               DRIFT_LIST="${DRIFT_LIST}
           - New upstream, not present here: \`$WORKFLOW_MISSING\`"
             fi
-            # Never names them: the filenames are the hostile part. The count
-            # is enough for a human to know something is wrong upstream.
-            if [[ -n "$WORKFLOW_REJECTED" && "$WORKFLOW_REJECTED" != "0" ]]; then
-              DRIFT_LIST="${DRIFT_LIST}
-          - **$WORKFLOW_REJECTED upstream filename(s) contain control characters** and are not named here. A workflow filename has no reason to contain one -- treat it as a sign the template repository has been tampered with."
-            fi
             BODY="$BODY
 
           ---
           **These workflows must be copied by hand.** A token scoped to \`contents\` cannot write \`.github/workflows/\`, so the sync leaves them alone.
           ${DRIFT_LIST}"
+          fi
+
+          # Its own block, not a bullet in the list above: a rejected filename is
+          # not a workflow to copy, and folding it in produced a "copy these by
+          # hand" heading over an empty list whenever it was the only finding.
+          # Never named -- the filename is the hostile part; the count is all a
+          # human needs to know something is wrong upstream.
+          if [[ -n "$WORKFLOW_REJECTED" && "$WORKFLOW_REJECTED" != "0" ]]; then
+            BODY="$BODY
+
+          ---
+          > [!WARNING]
+          > **$WORKFLOW_REJECTED upstream workflow filename(s) are not plain names** and are not
+          > listed here. A workflow filename has no reason to contain a control character, a
+          > backtick or a percent escape -- treat this as a sign that the template repository
+          > has been tampered with."
           fi
 
           TITLE="Sync launcher @ $SHORT_COMMIT"

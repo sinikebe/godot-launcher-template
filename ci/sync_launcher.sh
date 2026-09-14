@@ -60,20 +60,31 @@ for candidate in "$WORK/template/.github/workflows/"*.yml; do
 	name="$(basename "$candidate")"
 	# This name comes from the TEMPLATE repository, so it is attacker-controlled
 	# if that repository is compromised. Git allows every byte but "/" and NUL in
-	# a filename, and this one reaches places that give a NEWLINE meaning:
-	# $GITHUB_OUTPUT, which the runner parses line by line -- so an embedded
-	# newline forges step outputs, and a forged empty workflow_drift erases this
-	# very warning -- and the job log, where a line starting with :: is a workflow
-	# command.
+	# a filename, and the name reaches four sinks that each read something into
+	# it: $GITHUB_OUTPUT, parsed line by line, where a newline forges step outputs
+	# -- a forged empty workflow_drift erases this very warning; the job log, where
+	# a workflow command is recognised in either the ::cmd:: or the ##[cmd] form;
+	# and $GITHUB_STEP_SUMMARY and the pull request body, both rendered as markdown.
 	#
-	# Control characters, and only control characters, because only they carry
-	# that meaning. This guard was first written as a plain-name allowlist
-	# ([A-Za-z0-9._-]), which was wrong twice over: GitHub loads ANY .yml file in
-	# .github/workflows/ whatever it is called, so the allowlist silently hid a
-	# legitimate _reusable.yml -- the usual name for a called workflow -- from the
-	# very check this exists to perform, and announced it as though the template
-	# had been tampered with.
-	if [[ "$name" == *[[:cntrl:]]* ]]; then
+	# An allowlist, not a denylist of dangerous characters, because "dangerous" is
+	# not a property of the byte -- it is a property of the sink, and the sinks
+	# decode. This guard was briefly relaxed to reject only control characters, on
+	# the reasoning that only a newline carries line meaning. That was wrong twice:
+	# the runner maps the three literal characters %0A to a newline when it
+	# unescapes an annotation, so a plain-ASCII name injects log lines; and a
+	# backtick closes the markdown code span these names are printed inside, after
+	# which GitHub's www. autolink turns the rest into a live link -- no "/" needed,
+	# which is the only character git itself forbids.
+	#
+	# A leading underscore is legal: _reusable.yml is the ordinary name for a
+	# called workflow, and an earlier version of this allowlist rejected it,
+	# hiding a real new workflow and announcing it as though it were hostile.
+	# GitHub loads any .yml in .github/workflows/ whatever it is named.
+	#
+	# .yaml is permitted here but unreachable while the glob above is *.yml only
+	# (see the drift-detection gaps issue); matching it now means the glob can be
+	# widened without this line silently rejecting everything it newly finds.
+	if [[ ! "$name" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*\.ya?ml$ ]]; then
 		WORKFLOW_REJECTED=$((WORKFLOW_REJECTED + 1))
 		continue
 	fi
@@ -116,8 +127,9 @@ drift_report() {
 
 	# ::warning:: rather than a plain echo: a sync run that finds nothing to sync
 	# is green and uneventful, and nobody opens the log of a green run. An
-	# annotation surfaces in the Actions list without one. Safe to build from
-	# these names only because the guard above rejected any that are not plain.
+	# annotation surfaces in the Actions list without one. Safe to build from these
+	# names only because the allowlist above admits nothing the runner or a
+	# markdown renderer decodes -- no %, no backtick, no @, no control character.
 	if [[ -n "$CHANGED_LIST" ]]; then
 		echo "::warning::Workflows changed upstream and must be copied by hand: ${CHANGED_LIST}"
 	fi
@@ -125,7 +137,7 @@ drift_report() {
 		echo "::warning::Workflows are new upstream and not present here; copy them by hand: ${MISSING_LIST}"
 	fi
 	if (( WORKFLOW_REJECTED > 0 )); then
-		echo "::warning::${WORKFLOW_REJECTED} upstream workflow filename(s) contain control characters and were not reported by name."
+		echo "::warning::${WORKFLOW_REJECTED} upstream workflow filename(s) are not plain names and were not reported by name."
 	fi
 
 	[[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
@@ -153,8 +165,8 @@ drift_report() {
 		if (( WORKFLOW_REJECTED > 0 )); then
 			echo
 			echo "> [!WARNING]"
-			echo "> ${WORKFLOW_REJECTED} upstream workflow filename(s) contain control characters and are not named here."
-			echo "> A workflow filename has no reason to contain one. Treat it as a sign the template repository has been tampered with."
+			echo "> ${WORKFLOW_REJECTED} upstream workflow filename(s) are not plain names and are not named here."
+			echo "> A workflow filename has no reason to contain a control character, a backtick or a percent escape. Treat this as a sign the template repository has been tampered with."
 		fi
 	} >> "$GITHUB_STEP_SUMMARY" || echo "::warning::Could not write the run summary; the log above is the only copy."
 	# This function runs BEFORE the sync, and set -e would make the group above
