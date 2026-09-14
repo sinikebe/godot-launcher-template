@@ -55,7 +55,7 @@ die() { # every abort prints an annotation and exits non-zero
 # and a check that has silently stopped checking should say so where someone
 # scanning the Actions list can see it.
 if [[ -f "$RECORD" ]]; then
-	echo "::notice::This repository syncs its launcher from upstream; VERSION is upstream's to set. Bump check skipped."
+	echo "::notice::${RECORD} is present, so this repository syncs its launcher from upstream and VERSION is upstream's to set. Bump check skipped."
 	exit 0
 fi
 
@@ -64,15 +64,20 @@ fi
 # NOT `git diff <base.sha> HEAD`. On a pull_request run the checkout is
 # refs/pull/N/merge, and base.sha is a snapshot from when the event fired --
 # replayed unchanged by every "Re-run jobs". Two-dot against a stale base tip
-# reports everything that landed on the base branch since, so a pull request can
-# pass by riding a bump someone else merged. Diff from the merge base of the
-# pull request's own head instead, which is the same in both cases.
+# reports everything that landed on the base branch since, so a pull request
+# could pass by riding a bump someone else merged. Diff from the merge base of
+# the branch under review instead, which is the same answer either way.
+#
+# The workflow passes that branch's head explicitly. It was briefly inferred
+# from `HEAD^2` -- "two parents means this is the merge ref" -- which is not the
+# same statement: an author who merges main into their own branch to stay
+# current also produces a two-parent HEAD, and there HEAD^2 is the main side, so
+# the merge base collapsed to main's tip and the diff came back empty. Green,
+# having compared nothing. The head is a fact the caller has; it is not guessed.
 if [[ -n "$HEAD_ARG" ]]; then
-	HEAD_COMMIT="$(git rev-parse --verify "$HEAD_ARG^{commit}")"
-elif git rev-parse --verify --quiet 'HEAD^2' >/dev/null; then
-	# Two parents: this is the merge ref, and the second parent is the branch
-	# under review.
-	HEAD_COMMIT="$(git rev-parse 'HEAD^2')"
+	if ! HEAD_COMMIT="$(git rev-parse --verify --quiet "$HEAD_ARG^{commit}")"; then
+		die "Could not resolve the head ref '${HEAD_ARG}'; the launcher version was not checked."
+	fi
 else
 	HEAD_COMMIT="$(git rev-parse HEAD)"
 fi
@@ -125,25 +130,47 @@ HEAD_VERSION="$(read_version "$HEAD_COMMIT")"
 VERSION_LINE="$(awk '/^const VERSION: String = /{print NR; exit}' "$VERSION_FILE" 2>/dev/null || true)"
 [[ -n "$VERSION_LINE" ]] || VERSION_LINE=1
 
-is_semver() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+# Strict: semver forbids leading zeros in a numeric identifier, and admitting
+# them means "1.0.010" and "1.0.10" are two spellings of one version. The
+# comparison below orders them correctly either way; this just refuses to accept
+# a spelling that reads as two different things.
+is_semver() { [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; }
 
-version_gt() { # $1 > $2, compared numerically per component
+# $1 > $2, component by component.
+#
+# No arithmetic on the components. `(( 09 > 08 ))` is an octal parse error, and
+# is_semver admits leading zeros, so a date-shaped 2026.08.30 -> 2026.09.14 came
+# back as "went backwards" with raw bash errors in the annotation stream. A long
+# enough component overflows int64 and wraps. Comparing digit strings by length
+# and then lexicographically is the same ordering, for any length, in any base.
+version_gt() {
 	local -a a b
 	IFS=. read -ra a <<< "$1"
 	IFS=. read -ra b <<< "$2"
-	local i
+	local i x y
 	for i in 0 1 2; do
-		(( ${a[i]:-0} > ${b[i]:-0} )) && return 0
-		(( ${a[i]:-0} < ${b[i]:-0} )) && return 1
+		x="${a[i]:-0}"; y="${b[i]:-0}"
+		x="${x#"${x%%[!0]*}"}"; x="${x:-0}"
+		y="${y#"${y%%[!0]*}"}"; y="${y:-0}"
+		if (( ${#x} != ${#y} )); then
+			if (( ${#x} > ${#y} )); then return 0; else return 1; fi
+		fi
+		if [[ "$x" > "$y" ]]; then return 0; fi
+		if [[ "$x" < "$y" ]]; then return 1; fi
 	done
 	return 1
 }
 
-# Removing the launcher wholesale is a legitimate thing to do, and there is no
-# version left to bump.
-if [[ -z "$HEAD_VERSION" ]] && ! git cat-file -e "${HEAD_COMMIT}:${VERSION_FILE}" 2>/dev/null; then
-	echo "${VERSION_FILE} is gone at the head commit; nothing to bump."
-	exit 0
+# Removing the launcher wholesale is legitimate and leaves no version to bump.
+# Removing only the version file, while the rest of addons/launcher/ stays and
+# changes, is not: that is deleting the thing being checked.
+if ! git cat-file -e "${HEAD_COMMIT}:${VERSION_FILE}" 2>/dev/null; then
+	if [[ -z "$(git ls-tree -r --name-only "$HEAD_COMMIT" -- addons/launcher/ 2>/dev/null)" ]]; then
+		echo "addons/launcher/ is gone at the head commit; nothing to bump."
+		exit 0
+	fi
+	die "${VERSION_FILE} was removed, but the rest of addons/launcher/ is still here and changed." \
+		"" "Remove the launcher entirely, or keep the file that says which one it is."
 fi
 
 if [[ -z "$HEAD_VERSION" ]]; then
@@ -156,11 +183,19 @@ if ! is_semver "$HEAD_VERSION"; then
 		"" "A game reads this to say which launcher it is running. It has to be a version."
 fi
 
-# Empty base version means the file did not exist there -- the launcher is being
-# added. Any valid semver is a bump from nothing.
+# "Empty at base" is three different facts, and only one of them is benign.
+# read_version returns empty for an unreadable ref, for an absent file, and for
+# a file whose declaration is not in the exact expected form -- so asserting
+# "the launcher is being added" without checking passed a pull request that had
+# merely reformatted the declaration while changing the launcher.
 if [[ -z "$BASE_VERSION" ]]; then
-	echo "Launcher added at VERSION ${HEAD_VERSION}. ${#CHANGED[@]} file(s)."
-	exit 0
+	if ! git cat-file -e "${MERGE_BASE}:${VERSION_FILE}" 2>/dev/null; then
+		echo "Launcher added at VERSION ${HEAD_VERSION}. ${#CHANGED[@]} file(s)."
+		exit 0
+	fi
+	die "${VERSION_FILE} exists at the merge base but no VERSION could be read from it." \
+		"" "Expected a line of the form:  const VERSION: String = \"x.y.z\"" \
+		"Refusing to treat an unreadable base version as \"the launcher is new\"."
 fi
 
 if is_semver "$BASE_VERSION" && version_gt "$HEAD_VERSION" "$BASE_VERSION"; then

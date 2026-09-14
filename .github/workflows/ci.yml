@@ -20,7 +20,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Label events are their own group. github.ref is refs/pull/N/merge for every
+  # pull_request activity type, so a 'labeled' run would otherwise land in the
+  # same group as a running 'synchronize' run and cancel it -- and since the
+  # export job skips label events, nothing would re-run it for that head. A
+  # skipped required job reports to branch protection as satisfied, so the
+  # cancelled export would have been replaced by something that reads as passing.
+  # Code runs still cancel each other, which is the behaviour worth keeping.
+  group: ci-${{ github.ref }}-${{ github.event.action == 'labeled' || github.event.action == 'unlabeled' }}
   cancel-in-progress: true
 
 env:
@@ -159,5 +166,8 @@ jobs:
           # A label name is author-controlled on any fork pull request, and `${{ }}`
           # is substituted as text before bash parses it.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # Passed explicitly rather than inferred from the checked-out commit:
+          # the script must not have to guess which commit is under review.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           LAUNCHER_VERSION_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'no-launcher-bump') }}
-        run: bash ci/check_launcher_version.sh "$BASE_SHA"
+        run: bash ci/check_launcher_version.sh "$BASE_SHA" "$HEAD_SHA"
