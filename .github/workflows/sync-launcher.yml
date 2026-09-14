@@ -90,7 +90,22 @@ jobs:
           ~/godot/godot --headless --path . --import
           ~/godot/godot --headless --path . --quit-after 120
           # prepare_build.sh stamps generated values; keep them out of the PR.
-          git checkout -- build_version.gd export_presets.cfg 2>/dev/null || true
+          #
+          # One pathspec at a time, and only for files git actually tracks.
+          # `git checkout -- a b` is all-or-nothing: if either pathspec is not
+          # in the index it restores NEITHER, so build_version.gd would stay
+          # stamped and the `git add -A` below would commit it into the sync
+          # PR -- silently, because the error went to /dev/null. Being
+          # untracked is what matters, not being missing: a file present on
+          # disk but outside the index fails identically, which is the case a
+          # game hits when its own .gitignore excludes export_presets.cfg (as
+          # gitignore.io's Godot template, and github/gitignore before Feb
+          # 2025, both do).
+          for generated in build_version.gd export_presets.cfg; do
+            if git ls-files --error-unmatch "$generated" >/dev/null 2>&1; then
+              git checkout -- "$generated"
+            fi
+          done
           git clean -fd build 2>/dev/null || true
 
       - name: Open pull request
