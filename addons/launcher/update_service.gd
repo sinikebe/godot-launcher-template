@@ -99,9 +99,12 @@ func _process(_delta: float) -> void:
 func check_for_updates() -> State:
 	if _busy:
 		return state
-	if not BuildInfo.config.updates_enabled():
-		return _finish(State.UNAVAILABLE,
-			"No update repository configured (set update_repo in the launcher config).")
+	# Reports a bad update_branch as well as a missing update_repo. updates_enabled()
+	# stays keyed on update_repo alone, so a misconfigured branch surfaces as an
+	# error the player can see rather than hiding the update bar entirely.
+	var config_error := BuildInfo.config.update_config_error()
+	if not config_error.is_empty():
+		return _finish(State.UNAVAILABLE, config_error)
 
 	# A game that copied the demo's config would poll the launcher template and
 	# try to install the demo over itself. Refuse rather than do that.
@@ -113,9 +116,11 @@ func check_for_updates() -> State:
 	_set_state(State.CHECKING)
 	last_error = ""
 
-	# GitHub's CDN caches /releases/latest/download/ and ignores Cache-Control on
-	# it, so a plain request can be answered with the previous release's manifest
-	# for a while after a new one goes out. A unique query defeats that.
+	# GitHub's CDN caches release download paths and ignores Cache-Control on them,
+	# so a plain request can be answered with the previous manifest for a while
+	# after a new one goes out. A unique query defeats that. It matters more on a
+	# branch's rolling tag than on /releases/latest/: there the tag never changes,
+	# so every build of the branch is served from the same cached path.
 	var url := "%s?ts=%d" % [BuildInfo.config.manifest_url(), Time.get_unix_time_from_system()]
 	var response := await _request(url, "")
 	_busy = false
@@ -222,6 +227,9 @@ func _apply_content() -> State:
 
 	BuildInfo.write_state({
 		"content_version": version,
+		# Which build stream staged it, so a build following another one refuses to
+		# mount it even if the two ever end up sharing a user:// directory.
+		"branch": BuildInfo.release_branch,
 		"pack_path": final_path,
 		"size": size,
 		"sha256": str(pending_artifact.get("sha256", "")),

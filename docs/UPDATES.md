@@ -244,6 +244,94 @@ Bump `binary_version` in `version.json` in the same commit if the change needs a
 new binary. If you forget, players on the old binary will download a content pack
 that cannot actually deliver the change — bump it and merge again to correct.
 
+A `binary_version` bump is the one change worth putting on a device first, since
+installing over the top is the part no local test covers. See
+[Trying a change on a device before it ships](#trying-a-change-on-a-device-before-it-ships).
+
+## Trying a change on a device before it ships
+
+Merging to `main` publishes to everyone, and a pull request's CI artifact is no
+substitute: it is signed with a key made fresh for each run, so Android refuses
+to install it over the real app, and installed beside it, it would never update.
+
+A **branch build** fixes that. It follows one branch's rolling prerelease instead
+of `/releases/latest/`, so a change reaches a real device — over the real update
+path, binary updates included — before any player sees it.
+
+### Setting one up
+
+1. **Add the branch to the release workflow.** `.github/workflows/release.yml`
+   already lists `dev`; rename it or add your own:
+
+   ```yaml
+   on:
+     push:
+       branches: [main, dev]
+   ```
+
+   A push to any branch other than `main` publishes a **prerelease** tagged
+   `branch-<name>`, refreshed in place on every push. GitHub defines the latest
+   release as the newest one that is neither a prerelease nor a draft, so
+   `/releases/latest/` never returns it. Players cannot be offered it even by
+   accident.
+
+   Workflows are not synced from the template, so this step is yours to copy —
+   everything else below comes from `ci/` and `addons/launcher/`, which are.
+
+2. **Make a build that follows it.** Set `update_branch` on the `LauncherConfig`
+   of the build you want to install on the device:
+
+   ```
+   update_branch = "dev"
+   ```
+
+   Leave it empty — the default — and nothing changes: the build polls
+   `/releases/latest/` exactly as before.
+
+3. **Export it with `RELEASE_BRANCH` set**, which is what the workflow does for
+   you on a push to the branch. Building it by hand:
+
+   ```bash
+   RELEASE_BRANCH=dev bash ci/prepare_build.sh
+   ```
+
+The branch name is used verbatim as the tag suffix and as one URL path segment,
+so it must be letters, digits, dot, underscore and hyphen, starting with a letter
+or digit. `prepare_build.sh` refuses anything else rather than building something
+that cannot poll itself, and `LauncherConfig` applies the same rule.
+
+### What makes it a separate app
+
+A branch build has to sit *next to* the released app, not replace it. Three things
+give it its own identity, all applied by `prepare_build.sh` and only when
+`RELEASE_BRANCH` is set:
+
+| | |
+|---|---|
+| Android package id | gains a `.<branch>` segment, so Android treats it as a different app — without this the branch APK replaces the player's app, and the next release APK, signed with the same key, replaces it straight back |
+| App name | gains a `(<branch>)` label, so two icons on one home screen are tellable apart |
+| `user://` | a custom user dir, so neither app reads the other's saves, settings, or `update_state.json` — which names the content pack to mount, and would otherwise have the released app boot the branch's content |
+
+On Android the package id already separates private storage; the custom user dir
+is what separates everything else. The launcher also records which branch staged
+a content pack and refuses to mount one from another build stream, so the
+separation does not rest on the user dir alone.
+
+The menu stamp leads with `branch dev · …` so a build on a device says which one
+it is.
+
+### Using it
+
+Merge the change into the branch. The workflow publishes, and the branch build
+picks it up on its next launch — including a `binary_version` bump, which
+exercises the real install-over-the-top update that only a device can prove
+works. Once it plays right, merge to `main` and it ships.
+
+Versions stay monotonic as long as the branch only moves forward: `content_version`
+is `git rev-list --count HEAD`, so merging into the branch always raises it.
+Resetting or force-pushing the branch can lower it, and a build will then refuse
+to "update" backwards.
+
 ## Testing the update path
 
 The fastest loop, without touching a phone:

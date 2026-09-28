@@ -35,6 +35,9 @@ var version_name: String = ""
 var commit: String = ""
 var built_at: String = ""
 var is_ci_build: bool = false
+## Branch whose rolling prerelease this build follows, or "" for a normal build
+## that follows /releases/latest/. Stamped in by ci/prepare_build.sh.
+var release_branch: String = ""
 ## This build's own patch notes, baked in at build time so they are readable
 ## offline and before the first update check.
 var own_changes: Array = []
@@ -57,6 +60,7 @@ func _init() -> void:
 	commit = BuildVersion.COMMIT
 	built_at = BuildVersion.BUILT_AT
 	is_ci_build = BuildVersion.IS_CI_BUILD
+	release_branch = BuildVersion.RELEASE_BRANCH
 	own_changes = BuildVersion.CHANGES.duplicate()
 
 	_mount_staged_content()
@@ -89,6 +93,24 @@ func _mount_staged_content() -> void:
 	var pack_path := str(state.get("pack_path", ""))
 
 	if pack_path.is_empty() or not FileAccess.file_exists(pack_path):
+		clear_state()
+		_sweep_content_dir("")
+		return
+
+	# A pack staged by a build following a different release stream is not ours,
+	# whatever its version says. A branch build and the release build are supposed
+	# to have separate user:// directories, so this should be unreachable -- but
+	# the consequence of mounting the wrong pack is the release app silently
+	# running unreleased content, so it is checked rather than assumed. A game that
+	# never sets a branch compares "" with "" and is unaffected.
+	#
+	# Absent on state written before this key existed, which can only be a release
+	# build's own pack, and "" is what a release build expects.
+	var staged_branch := str(state.get("branch", ""))
+	if staged_branch != release_branch:
+		pack_error = "Staged content pack belongs to a different build stream; discarding it."
+		push_warning("[BuildInfo] %s (staged \"%s\", running \"%s\")" % [
+			pack_error, staged_branch, release_branch])
 		clear_state()
 		_sweep_content_dir("")
 		return
@@ -185,6 +207,10 @@ func display_version() -> String:
 	var text := "v%s  ·  bin %d  ·  content %d" % [version_name, binary_version, content_version]
 	if not commit.is_empty() and commit != "local":
 		text += "  ·  %s" % commit
+	# First, and named, because a branch build is otherwise indistinguishable from
+	# the app the player has -- and the whole point is that it is not that app.
+	if not release_branch.is_empty():
+		text = "branch %s  ·  " % release_branch + text
 	return text + "\n" + launcher_version()
 
 
