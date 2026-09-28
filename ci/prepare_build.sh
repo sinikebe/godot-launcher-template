@@ -62,7 +62,7 @@ BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RELEASE_BRANCH="${RELEASE_BRANCH:-}"
 
 if [[ -n "$RELEASE_BRANCH" ]]; then
-	# Mirrors LauncherConfig.update_branch_is_valid(). The name is used verbatim as
+	# Mirrors LauncherConfig.branch_is_valid(). The name is used verbatim as
 	# a git tag suffix and as one URL path segment, so a slash cannot work, and a
 	# name git would refuse must be caught here rather than at `gh release create`
 	# after a twenty-minute build.
@@ -76,7 +76,7 @@ if [[ -n "$RELEASE_BRANCH" ]]; then
 			"or digit, no \"..\", and not ending in \".\" or \".lock\"." \
 			"" \
 			"The name becomes the tag \"branch-<name>\" and one segment of the URL the" \
-			"app polls, and LauncherConfig.update_branch applies the same rule -- so a" \
+			"app polls, and LauncherConfig.branch_is_valid() applies the same rule -- so a" \
 			"name accepted here is a name the shipped build can actually poll." >&2
 		exit 1
 	fi
@@ -196,7 +196,7 @@ fi
 # name on one home screen is its own kind of bug.
 if [[ -n "$RELEASE_BRANCH" && -f export_presets.cfg ]]; then
 	RELEASE_BRANCH="$RELEASE_BRANCH" BRANCH_PACKAGE_SEGMENT="$BRANCH_PACKAGE_SEGMENT" python3 - <<'PYEOF'
-import os, pathlib, re, sys
+import os, pathlib, re, subprocess, sys
 
 branch = os.environ["RELEASE_BRANCH"]
 segment = os.environ["BRANCH_PACKAGE_SEGMENT"]
@@ -204,40 +204,49 @@ label = f" ({branch})"
 path = pathlib.Path("export_presets.cfg")
 text = path.read_text(encoding="utf-8")
 
+# The suffix is applied to the value this file carries in the commit being built,
+# not to whatever the working copy currently holds. "Does it already end in
+# .<segment>?" was a guess, and it guessed wrong in the one case that matters: a
+# game whose own package id happens to end in .dev kept the release build's exact
+# id, so the branch APK would have replaced the player's app -- and the script
+# said it had applied the identity. Reading the committed value is exact, and a
+# rerun in the same workspace lands on the same answer.
+def committed(name: str) -> dict[str, str]:
+    try:
+        blob = subprocess.run(
+            ["git", "show", f"HEAD:{name}"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError):
+        # Not committed yet: fall back to the working copy, which is right on a
+        # first run and is all a brand-new project can offer.
+        blob = text
+    return dict(re.findall(r'^([A-Za-z0-9_/]+)="([^"]*)"$', blob, flags=re.M))
 
-def suffix_package(match: re.Match) -> str:
-    current = match.group(1)
-    # Idempotent: a rerun in the same workspace must not stack the segment.
-    if current.endswith("." + segment):
-        return match.group(0)
-    return f'package/unique_name="{current}.{segment}"'
+base = committed("export_presets.cfg")
 
 
-def suffix_name(match: re.Match) -> str:
-    key, current = match.group(1), match.group(2)
-    if current.endswith(label):
-        return match.group(0)
-    return f'{key}="{current}{label}"'
+def set_key(body: str, key: str, value: str) -> tuple[str, int]:
+    return re.subn(rf'^{re.escape(key)}=.*$', lambda _m: f'{key}="{value}"', body, flags=re.M)
 
 
-text, package_edits = re.subn(
-    r'^package/unique_name="([^"]*)"$', suffix_package, text, flags=re.M
-)
-text = re.sub(
-    r'^(package/name|application/product_name|application/file_description)="([^"]*)"$',
-    suffix_name,
-    text,
-    flags=re.M,
-)
-path.write_text(text, encoding="utf-8")
+package_edits = 0
+if "package/unique_name" in base:
+    text, package_edits = set_key(text, "package/unique_name", f'{base["package/unique_name"]}.{segment}')
 
-# A preset file with an Android target but no package id would produce a branch
-# APK that overwrites the player's app, which is the whole thing this prevents.
+for key in ("package/name", "application/product_name", "application/file_description"):
+    if key in base:
+        text, _ = set_key(text, key, f"{base[key]}{label}")
+
+# Checked before the file is written: an aborted run must not leave a tracked file
+# half-rewritten for a developer to commit by accident.
 if package_edits == 0 and re.search(r'^platform="Android"$', text, flags=re.M):
     sys.exit(
         "export_presets.cfg has an Android preset but no package/unique_name to "
         "give a branch segment; a branch APK would replace the release app."
     )
+
+path.write_text(text, encoding="utf-8")
 print(f"Branch identity applied to {package_edits} Android package id(s).")
 PYEOF
 fi
@@ -261,13 +270,23 @@ text = path.read_text(encoding="utf-8")
 
 # Keys inside [application] are written section-relative -- config/name, not
 # application/config/name -- so they have to be placed in that section.
-header = re.search(r"^\[application\][^\n]*$", text, flags=re.M)
-if header is None:
+#
+# Every section header is collected and exactly one must be [application]. A plain
+# search for the header took the first line that looked like one anywhere in the
+# file, including inside a multi-line string value, and then wrote the keys into
+# that string -- destroying the real section, exiting 0, and shipping a branch
+# build that shared the release app's user:// after all.
+headers = [
+    m for m in re.finditer(r"^\[([^\]\n]*)\][^\n]*$", text, flags=re.M)
+    if m.group(1) == "application"
+]
+if len(headers) != 1:
     sys.exit(
-        "project.godot has no [application] section, so this branch build cannot be "
-        "given its own user:// directory. Refusing to ship a build that would share "
-        "the release app's saved data."
+        f"project.godot has {len(headers)} [application] section headers; expected "
+        "exactly one. Refusing to guess, because getting this wrong ships a branch "
+        "build that shares the release app's saved data."
     )
+header = headers[0]
 
 start, end = header.end(), len(text)
 following = re.search(r"^\[", text[start:], flags=re.M)

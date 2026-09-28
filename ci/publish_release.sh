@@ -66,7 +66,8 @@ trap 'rm -f "$NOTES"' EXIT
 		echo "> \`${RELEASE_BRANCH}\`, refreshed on every push to that branch. It is a"
 		echo "> separate app: its own Android package id, its own name, and its own saved"
 		echo "> data, so it installs beside the released app rather than replacing it."
-		echo "> Only a build configured with \`update_branch = \"${RELEASE_BRANCH}\"\` polls it."
+		echo "> Only a build exported for \`${RELEASE_BRANCH}\` polls this tag; nothing built"
+		echo "> from the default branch can reach it."
 		echo ""
 	fi
 	echo "| | |"

@@ -12,8 +12,9 @@ name: Release
 # A push to any branch below other than main publishes to that branch's own
 # rolling tag as a prerelease, which /releases/latest/ never returns. Add or
 # rename branches here to suit the game; `dev` is only the conventional one.
-# A build follows such a branch by setting update_branch in its launcher config,
-# and nothing else can reach it.
+# A build follows such a branch because it was exported for it -- the stamp that
+# gives it its own package id and user:// is the same one that decides what it
+# polls -- so nothing built for main can reach it.
 
 on:
   push:
@@ -34,18 +35,26 @@ concurrency:
 env:
   GODOT_VERSION: "4.7"
   GODOT_RELEASE: stable
-  # Empty on main, which is what makes a release a release: prepare_build.sh and
-  # publish_release.sh both behave exactly as they always did when it is unset.
+  # Empty on the repo's default branch, which is what makes a release a release:
+  # prepare_build.sh and publish_release.sh both behave exactly as they always did
+  # when it is unset.
   #
-  # Written as `!= 'main' && ref_name || ''` rather than the other way round
-  # because an empty string is falsy to Actions, so `== 'main' && '' || ref_name`
+  # Compared against the repository's actual default branch rather than the
+  # literal "main". A game that renames its release branch edits the list above --
+  # the docs tell it to -- and with a literal here every release from `master` or
+  # `trunk` would then publish as a prerelease under a branch tag, with a branch
+  # package id: /releases/latest/ would return nothing, every installed build would
+  # stop updating, and the new APK could no longer install over the old one.
+  #
+  # Written as `!= default && ref_name || ''` rather than the other way round
+  # because an empty string is falsy to Actions, so `== default && '' || ref_name`
   # would fall through and hand every release the branch path.
   #
   # Passed as an environment variable, never interpolated into a `run:` block: a
   # branch name is attacker-controllable on a fork and `${{ }}` is substituted
   # into the script before bash parses it. prepare_build.sh validates the value
   # and refuses anything outside [A-Za-z0-9._-].
-  RELEASE_BRANCH: ${{ github.ref_name != 'main' && github.ref_name || '' }}
+  RELEASE_BRANCH: ${{ github.ref_name != github.event.repository.default_branch && github.ref_name || '' }}
 
 jobs:
   release:

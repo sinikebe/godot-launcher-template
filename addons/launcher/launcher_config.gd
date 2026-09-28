@@ -87,28 +87,6 @@ var background_stretch: int = 3
 ## turn the updater off entirely.
 @export var update_repo: String = ""
 
-## Follow one branch's rolling prerelease instead of the newest release.
-##
-## Empty -- the normal case -- polls /releases/latest/download/, so the build
-## updates to whatever every player gets.
-##
-## Set to a branch name, this build polls that branch's own rolling release
-## instead, tagged "branch-<name>". CI publishes that release as a prerelease, so
-## /releases/latest/ never returns it and no player ever sees it. That is how a
-## change gets tried on a real device before it ships.
-##
-## A build with this set must also be exported with ci/prepare_build.sh's
-## RELEASE_BRANCH set to the same branch. That is what gives it its own Android
-## package id and its own user:// directory, so it installs beside the real app
-## instead of replacing it, and neither app reads the other's saved data.
-##
-## The name is used verbatim as the tag suffix, so it has to be usable in a git
-## tag and in a single URL path segment: letters, digits, dot, underscore and
-## hyphen, starting with a letter or digit. A name containing a slash cannot
-## work -- it would add a path segment to the download URL -- and is reported
-## rather than quietly polling the wrong place.
-@export var update_branch: String = ""
-
 ## Check for updates automatically when the launcher opens.
 @export var check_on_launch: bool = true
 
@@ -122,22 +100,22 @@ var background_stretch: int = 3
 @export var theme_override: Theme
 
 
-## True when [member update_branch] is empty, or is a name that can be used
-## verbatim as a git tag suffix and as one URL path segment.
+## True when [param branch] is empty, or is a name usable verbatim as a git tag
+## suffix and as one URL path segment.
 ##
 ## Mirrors the identical check in ci/prepare_build.sh, which refuses to build for
-## a branch this would reject -- so a name that gets a build made for it is a name
+## a branch this would reject -- so a branch that gets a build made for it is one
 ## the launcher can poll.
-func update_branch_is_valid() -> bool:
-	if update_branch.is_empty():
+static func branch_is_valid(branch: String) -> bool:
+	if branch.is_empty():
 		return true
 	# Git refuses all three outright, so the tag could never have been created.
-	if update_branch.contains(".."):
+	if branch.contains(".."):
 		return false
-	if update_branch.ends_with(".") or update_branch.ends_with(".lock"):
+	if branch.ends_with(".") or branch.ends_with(".lock"):
 		return false
-	for i in update_branch.length():
-		var c := update_branch.unicode_at(i)
+	for i in branch.length():
+		var c := branch.unicode_at(i)
 		var alnum := (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122)
 		if i == 0:
 			if not alnum:
@@ -148,55 +126,58 @@ func update_branch_is_valid() -> bool:
 	return true
 
 
-## The release tag this build follows, or "" when it follows /releases/latest/.
-##
-## Also "" for a branch name this launcher will not poll, so the tag a caller
-## gets is always one that could exist.
-func release_tag() -> String:
-	if update_branch.is_empty() or not update_branch_is_valid():
-		return ""
-	return "branch-" + update_branch
-
-
 ## Why updates cannot run, or "" when they can.
-func update_config_error() -> String:
+##
+## [param branch] is BuildInfo.release_branch: which release stream this binary
+## was built to follow.
+func update_config_error(branch: String = "") -> String:
 	if update_repo.is_empty():
 		return "No update repository configured (set update_repo in the launcher config)."
-	if not update_branch_is_valid():
-		return ("update_branch \"%s\" is not a usable branch name: letters, digits, dot, "
-			+ "underscore and hyphen only, starting with a letter or digit.") % update_branch
+	if not branch_is_valid(branch):
+		return ("This build was stamped for branch \"%s\", which is not a usable branch name: "
+			+ "letters, digits, dot, underscore and hyphen only, starting with a letter or digit.") % branch
 	return ""
 
 
 ## Where the app polls for its update manifest.
 ##
-## With no branch set, /releases/latest/download/ always redirects to the newest
-## release, so a shipped build never needs a release tag, an API call, or a rate
-## limit budget.
+## [param branch] is BuildInfo.release_branch -- the branch this binary was built
+## for, stamped in by ci/prepare_build.sh. It is deliberately not a field on this
+## resource:
 ##
-## With one set, the URL is pinned to that branch's rolling tag instead. The name
-## is still fixed from one build to the next -- the tag rolls, it does not change
-## -- so the same reasoning holds.
+##   A field here would travel with a merge. The way to use a branch build is to
+##   merge the branch into main once it plays right, and that merge would carry
+##   the setting to every player, pointing the shipped app at a prerelease.
 ##
-## Returns "" when the branch name is unusable. Deliberately not a fall back to
+##   This resource is also loaded *after* a content pack is mounted, so a pack
+##   could ship a config naming a different stream and redirect the app. The
+##   stamp is preloaded, resolved before any pack exists, and is the same value
+##   that gave a branch build its own package id and its own user:// -- so it
+##   cannot disagree with the app's identity.
+##
+## Empty -- the normal case -- polls /releases/latest/download/, which always
+## redirects to the newest release, so a shipped build needs no release tag, no
+## API call and no rate limit budget. With a branch, the URL is pinned to that
+## branch's rolling tag; the tag rolls but never changes name, so the same
+## reasoning holds.
+##
+## Returns "" for an unusable branch name. Deliberately not a fall back to
 ## /releases/latest/: that would have a branch build quietly start updating
 ## itself from the releases players get, which is the one thing it must not do.
-func manifest_url() -> String:
-	if update_repo.is_empty() or not update_branch_is_valid():
+func manifest_url(branch: String = "") -> String:
+	if update_repo.is_empty() or not branch_is_valid(branch):
 		return ""
-	var tag := release_tag()
-	if tag.is_empty():
+	if branch.is_empty():
 		return "https://github.com/%s/releases/latest/download/manifest.json" % update_repo
-	return "https://github.com/%s/releases/download/%s/manifest.json" % [update_repo, tag]
+	return "https://github.com/%s/releases/download/branch-%s/manifest.json" % [update_repo, branch]
 
 
-func releases_url() -> String:
-	if update_repo.is_empty() or not update_branch_is_valid():
+func releases_url(branch: String = "") -> String:
+	if update_repo.is_empty() or not branch_is_valid(branch):
 		return ""
-	var tag := release_tag()
-	if tag.is_empty():
+	if branch.is_empty():
 		return "https://github.com/%s/releases/latest" % update_repo
-	return "https://github.com/%s/releases/tag/%s" % [update_repo, tag]
+	return "https://github.com/%s/releases/tag/branch-%s" % [update_repo, branch]
 
 
 func updates_enabled() -> bool:

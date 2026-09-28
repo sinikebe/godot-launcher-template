@@ -269,36 +269,39 @@ path, binary updates included — before any player sees it.
        branches: [main, dev]
    ```
 
-   A push to any branch other than `main` publishes a **prerelease** tagged
-   `branch-<name>`, refreshed in place on every push. GitHub defines the latest
-   release as the newest one that is neither a prerelease nor a draft, so
-   `/releases/latest/` never returns it. Players cannot be offered it even by
-   accident.
+   A push to any branch that is not the repository's **default** branch publishes
+   a **prerelease** tagged `branch-<name>`, refreshed in place on every push.
+   GitHub defines the latest release as the newest one that is neither a
+   prerelease nor a draft, so `/releases/latest/` never returns it.
+
+   The workflow compares against the repository's real default branch, not the
+   literal `main`, so renaming your release branch needs no second edit here.
 
    Workflows are not synced from the template, so this step is yours to copy —
-   everything else below comes from `ci/` and `addons/launcher/`, which are.
+   everything below comes from `ci/` and `addons/launcher/`, which are.
 
-2. **Make a build that follows it.** Set `update_branch` on the `LauncherConfig`
-   of the build you want to install on the device:
+2. **That is the whole setup.** There is no launcher setting to turn on. A build
+   follows a branch because it was *exported* for that branch: CI passes
+   `RELEASE_BRANCH` to `ci/prepare_build.sh`, which stamps it into the binary, and
+   that one value decides the Android package id, the `user://` directory, the
+   menu stamp, and which release the app polls.
 
-   ```
-   update_branch = "dev"
-   ```
-
-   Leave it empty — the default — and nothing changes: the build polls
-   `/releases/latest/` exactly as before.
-
-3. **Export it with `RELEASE_BRANCH` set**, which is what the workflow does for
-   you on a push to the branch. Building it by hand:
+   Building one by hand is the same thing:
 
    ```bash
    RELEASE_BRANCH=dev bash ci/prepare_build.sh
    ```
 
+   Deliberately *not* a field on `LauncherConfig`. A setting there would travel
+   with the merge that ships the change — the last step below — and point every
+   player's app at the prerelease. It would also be overridable by a content
+   pack, since the config is loaded after a pack is mounted, while the build
+   stamp is fixed before any pack exists.
+
 The branch name is used verbatim as the tag suffix and as one URL path segment,
 so it must be letters, digits, dot, underscore and hyphen, starting with a letter
 or digit. `prepare_build.sh` refuses anything else rather than building something
-that cannot poll itself, and `LauncherConfig` applies the same rule.
+that cannot poll itself, and the launcher applies the same rule.
 
 ### What makes it a separate app
 
@@ -313,9 +316,10 @@ give it its own identity, all applied by `prepare_build.sh` and only when
 | `user://` | a custom user dir, so neither app reads the other's saves, settings, or `update_state.json` — which names the content pack to mount, and would otherwise have the released app boot the branch's content |
 
 On Android the package id already separates private storage; the custom user dir
-is what separates everything else. The launcher also records which branch staged
-a content pack and refuses to mount one from another build stream, so the
-separation does not rest on the user dir alone.
+is what separates everything else. As a second line of defence, the launcher
+records which stream staged a content pack and refuses to mount one staged by a
+differently-stamped binary — so two builds that somehow *did* share a `user://`
+still would not boot each other's content.
 
 The menu stamp leads with `branch dev · …` so a build on a device says which one
 it is.
