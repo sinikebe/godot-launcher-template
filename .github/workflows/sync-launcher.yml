@@ -72,7 +72,7 @@ jobs:
           path: |
             ~/godot
             ~/.local/share/godot/export_templates
-          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux-verified-v1
 
       - name: Install Godot
         if: steps.diff.outputs.changed == 'true'
