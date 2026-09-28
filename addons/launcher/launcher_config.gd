@@ -100,20 +100,84 @@ var background_stretch: int = 3
 @export var theme_override: Theme
 
 
+## True when [param branch] is empty, or is a name usable verbatim as a git tag
+## suffix and as one URL path segment.
+##
+## Mirrors the identical check in ci/prepare_build.sh, which refuses to build for
+## a branch this would reject -- so a branch that gets a build made for it is one
+## the launcher can poll.
+static func branch_is_valid(branch: String) -> bool:
+	if branch.is_empty():
+		return true
+	# Git refuses all three outright, so the tag could never have been created.
+	if branch.contains(".."):
+		return false
+	if branch.ends_with(".") or branch.ends_with(".lock"):
+		return false
+	for i in branch.length():
+		var c := branch.unicode_at(i)
+		var alnum := (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122)
+		if i == 0:
+			if not alnum:
+				return false
+		# . _ -
+		elif not (alnum or c == 46 or c == 95 or c == 45):
+			return false
+	return true
+
+
+## Why updates cannot run, or "" when they can.
+##
+## [param branch] is BuildInfo.release_branch: which release stream this binary
+## was built to follow.
+func update_config_error(branch: String = "") -> String:
+	if update_repo.is_empty():
+		return "No update repository configured (set update_repo in the launcher config)."
+	if not branch_is_valid(branch):
+		return ("This build was stamped for branch \"%s\", which is not a usable branch name: "
+			+ "letters, digits, dot, underscore and hyphen only, starting with a letter or digit.") % branch
+	return ""
+
+
 ## Where the app polls for its update manifest.
 ##
-## /releases/latest/download/ always redirects to the newest release, so a
-## shipped build never needs a release tag, an API call, or a rate limit budget.
-func manifest_url() -> String:
-	if update_repo.is_empty():
+## [param branch] is BuildInfo.release_branch -- the branch this binary was built
+## for, stamped in by ci/prepare_build.sh. It is deliberately not a field on this
+## resource:
+##
+##   A field here would travel with a merge. The way to use a branch build is to
+##   merge the branch into main once it plays right, and that merge would carry
+##   the setting to every player, pointing the shipped app at a prerelease.
+##
+##   This resource is also loaded *after* a content pack is mounted, so a pack
+##   could ship a config naming a different stream and redirect the app. The
+##   stamp is preloaded, resolved before any pack exists, and is the same value
+##   that gave a branch build its own package id and its own user:// -- so it
+##   cannot disagree with the app's identity.
+##
+## Empty -- the normal case -- polls /releases/latest/download/, which always
+## redirects to the newest release, so a shipped build needs no release tag, no
+## API call and no rate limit budget. With a branch, the URL is pinned to that
+## branch's rolling tag; the tag rolls but never changes name, so the same
+## reasoning holds.
+##
+## Returns "" for an unusable branch name. Deliberately not a fall back to
+## /releases/latest/: that would have a branch build quietly start updating
+## itself from the releases players get, which is the one thing it must not do.
+func manifest_url(branch: String = "") -> String:
+	if update_repo.is_empty() or not branch_is_valid(branch):
 		return ""
-	return "https://github.com/%s/releases/latest/download/manifest.json" % update_repo
+	if branch.is_empty():
+		return "https://github.com/%s/releases/latest/download/manifest.json" % update_repo
+	return "https://github.com/%s/releases/download/branch-%s/manifest.json" % [update_repo, branch]
 
 
-func releases_url() -> String:
-	if update_repo.is_empty():
+func releases_url(branch: String = "") -> String:
+	if update_repo.is_empty() or not branch_is_valid(branch):
 		return ""
-	return "https://github.com/%s/releases/latest" % update_repo
+	if branch.is_empty():
+		return "https://github.com/%s/releases/latest" % update_repo
+	return "https://github.com/%s/releases/tag/branch-%s" % [update_repo, branch]
 
 
 func updates_enabled() -> bool:

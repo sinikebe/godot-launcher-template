@@ -28,6 +28,11 @@ const BUILT_AT: String = ""
 ## True when this build came out of CI rather than a local export/editor run.
 const IS_CI_BUILD: bool = false
 
+## Branch whose rolling prerelease this build follows, or "" for a normal build
+## that follows /releases/latest/. Set by CI from RELEASE_BRANCH; a local build
+## follows the normal path.
+const RELEASE_BRANCH: String = ""
+
 ## What landed in this build, newest first. Baked in so the app can show its own
 ## patch notes with no network access.
 const CHANGES := []

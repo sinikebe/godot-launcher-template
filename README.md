@@ -244,7 +244,7 @@ its own releases, its own Android package id and its own signing key.
 |---|---|
 | [Getting started](docs/GETTING-STARTED.md) | The walkthrough, with what you should see at each step |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | "App not installed", no pull request, updates not detected… |
-| [How updates work](docs/UPDATES.md) | The two version numbers, the manifest, signing, per-platform behaviour |
+| [How updates work](docs/UPDATES.md) | The two version numbers, the manifest, signing, per-platform behaviour, trying a change on a device before it ships |
 
 ## Requirements
 

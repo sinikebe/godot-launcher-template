@@ -99,9 +99,12 @@ func _process(_delta: float) -> void:
 func check_for_updates() -> State:
 	if _busy:
 		return state
-	if not BuildInfo.config.updates_enabled():
-		return _finish(State.UNAVAILABLE,
-			"No update repository configured (set update_repo in the launcher config).")
+	# Reports a bad branch stamp as well as a missing update_repo. updates_enabled()
+	# stays keyed on update_repo alone, so a misconfigured branch surfaces as an
+	# error the player can see rather than hiding the update bar entirely.
+	var config_error := BuildInfo.config.update_config_error(BuildInfo.release_branch)
+	if not config_error.is_empty():
+		return _finish(State.UNAVAILABLE, config_error)
 
 	# A game that copied the demo's config would poll the launcher template and
 	# try to install the demo over itself. Refuse rather than do that.
@@ -113,10 +116,16 @@ func check_for_updates() -> State:
 	_set_state(State.CHECKING)
 	last_error = ""
 
-	# GitHub's CDN caches /releases/latest/download/ and ignores Cache-Control on
-	# it, so a plain request can be answered with the previous release's manifest
-	# for a while after a new one goes out. A unique query defeats that.
-	var url := "%s?ts=%d" % [BuildInfo.config.manifest_url(), Time.get_unix_time_from_system()]
+	# GitHub's CDN caches release download paths and ignores Cache-Control on them,
+	# so a plain request can be answered with the previous manifest for a while
+	# after a new one goes out. A unique query defeats that. It matters more on a
+	# branch's rolling tag than on /releases/latest/: there the tag never changes,
+	# so every build of the branch is served from the same cached path.
+	# The branch comes from the build stamp, never from the config: it is the same
+	# value that decided this build's package id and user:// directory, so what it
+	# polls cannot disagree with which app it is.
+	var url := "%s?ts=%d" % [
+		BuildInfo.config.manifest_url(BuildInfo.release_branch), Time.get_unix_time_from_system()]
 	var response := await _request(url, "")
 	_busy = false
 
@@ -222,6 +231,9 @@ func _apply_content() -> State:
 
 	BuildInfo.write_state({
 		"content_version": version,
+		# Which build stream staged it, so a build following another one refuses to
+		# mount it even if the two ever end up sharing a user:// directory.
+		"branch": BuildInfo.release_branch,
 		"pack_path": final_path,
 		"size": size,
 		"sha256": str(pending_artifact.get("sha256", "")),
@@ -265,7 +277,7 @@ func _apply_binary() -> State:
 
 	# Nothing safe to automate here: point at the release page.
 	_busy = false
-	OS.shell_open(BuildInfo.config.releases_url())
+	OS.shell_open(BuildInfo.config.releases_url(BuildInfo.release_branch))
 	return _finish(State.UNAVAILABLE, "Download the new build from the GitHub releases page.")
 
 
@@ -288,7 +300,7 @@ func _hand_off_to_installer() -> State:
 		# The APK sits in private storage, so there is nothing the user could
 		# open by hand. Send them to the release page instead -- a browser
 		# download lands somewhere they can install from.
-		OS.shell_open(BuildInfo.config.releases_url())
+		OS.shell_open(BuildInfo.config.releases_url(BuildInfo.release_branch))
 		return _fail("Could not open the installer. Opened the releases page so you can download the APK directly.")
 
 	return _finish(State.INSTALL_HANDOFF, "")
