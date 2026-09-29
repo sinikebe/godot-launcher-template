@@ -171,6 +171,14 @@ jobs:
         # while the Android pack carries .etc2.ctex and differs. So the file is
         # named for the family it serves, not for Windows, and is published under
         # every desktop platform key the launcher can ask for.
+        #
+        # That identity holds while the desktop presets agree on their
+        # texture_format/* flags and custom_features. A game that adds a macOS
+        # preset with etc2_astc, or a Linux preset with its own custom_features,
+        # breaks it and would be publishing the wrong bytes under those keys --
+        # nothing here would notice. This repository defines no Linux or macOS
+        # preset, so there is nothing to diverge; a game that adds one should
+        # diff its pack against this one.
         run: |
           mkdir -p build/content
           ~/godot/godot --headless --path . --export-pack "Android" build/content/content-android.pck

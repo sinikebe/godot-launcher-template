@@ -27,11 +27,12 @@ own with a scheduled job.
 
 ## What you get
 
-- **Self-updating builds.** Content packs reach every desktop and mobile platform
-  the launcher runs on. A new *binary* installs itself on Android, which swaps the
-  APK in place, and on Windows, which swaps its own `.exe`; on Linux and macOS a
-  new binary has to be downloaded by hand, so the app opens the release page
-  instead. Every download is checked against a SHA-256 before it is installed.
+- **Self-updating builds.** Content packs reach every platform this pipeline
+  builds for — Android, Windows, Linux and macOS. A new *binary* installs itself
+  on Android, which swaps the APK in place, and on Windows, which swaps its own
+  `.exe`; Linux and macOS take content packs only, and say so plainly when a
+  release needs a new binary. Every download is checked against a SHA-256 before
+  it is installed.
 - **Two update tracks.** A `.pck` content update is tens of kilobytes and applies
   on restart. Only genuine binary changes — engine version, permissions, plugins —
   need a full APK.

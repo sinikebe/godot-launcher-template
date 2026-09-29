@@ -178,22 +178,40 @@ Android library; on desktop it relaunches `OS.get_executable_path()`. If neither
 works the user is simply asked to reopen the app.
 
 "Everywhere" means the manifest carries a content pack under every platform key
-`BuildInfo.platform_key()` can return for a native build — `android`, `windows`,
-`linux` and `macos` — because the launcher looks the pack up by that exact key and
-has no fallback. Two packs cover the four: mobile and desktop need different
-texture compression, but the Windows, Linux and macOS presets all produce a
-byte-identical pack, so one desktop pack is published under all three desktop
-keys. A Web export is the exception, and needs nothing: it updates by being
-re-served.
+this pipeline builds for — `android`, `windows`, `linux` and `macos` — because the
+launcher looks the pack up by that exact key and has no fallback. Two packs cover
+the four: mobile and desktop need different texture compression, but the Windows,
+Linux and macOS presets all produce a byte-identical pack (while they share their
+`texture_format/*` flags and `custom_features`), so one desktop pack is published
+under all three desktop keys.
+
+That is the set this pipeline builds, not the set the launcher can ask for.
+`platform_key()` ends in `_: return OS.get_name().to_lower()`, so a target nobody
+here exports — `ios`, `visionos`, or `web` — produces a key with no entry in the
+manifest, and the update check settles on `UNAVAILABLE` with
+`No content pack published for <key>.`
+
+A Web export needs no pack, since it updates by being re-served — but the launcher
+does not know that, and will show that message from the first release onward. Turn
+the bar off in a web build's config (`show_update_bar = false`,
+`check_on_launch = false`) until the launcher learns to skip the check there.
 
 ### What a binary update cannot do off Android and Windows
 
 `_apply_binary()` swaps the APK on Android and the `.exe` on Windows. There is no
-equivalent for Linux or macOS, so a release whose `binary_version` is higher than
-an installed Linux or macOS build cannot be applied by the app — it opens the
-release page and asks the user to download it. Those platforms therefore have no
-`binary` entry in the manifest at all, which is what makes the launcher say so
-plainly rather than offering an update it cannot finish.
+equivalent for Linux or macOS, so those platforms carry no `binary` entry in the
+manifest. A release that raises `binary_version` therefore ends on `UNAVAILABLE`
+there, with "Version X needs a new app build, but none is published for linux yet"
+in the status bar and the button back to "Check for updates".
+
+It does **not** open the release page. `_apply_binary()` has a `shell_open`
+fallback for exactly this case, but it is unreachable from this pipeline:
+`apply_pending_update()` returns immediately while `pending_artifact` is empty, and
+only a manifest entry for this platform ever fills it. Measured on Linux against a
+release raising `binary_version` — `pending_artifact` empty, and
+`apply_pending_update()` a no-op that leaves the state and the message unchanged.
+Giving the player a link would mean either publishing a `binary:linux` the app
+cannot apply, or teaching the `UNAVAILABLE` path to offer the release page.
 
 Most releases do not need a new binary: `binary_version` is bumped by hand and
 only for a change a content pack cannot deliver, such as an engine upgrade, a new
