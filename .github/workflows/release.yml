@@ -161,12 +161,20 @@ jobs:
           ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/${{ steps.version.outputs.exe_name }}
 
       - name: Export content packs
-        # One pack per platform: texture compression differs between mobile and
-        # desktop, so a single shared pack would ship the wrong format to one of them.
+        # Two packs, split by texture compression rather than by OS: mobile needs
+        # ETC2, desktop needs S3TC/BPTC, so one shared pack would ship the wrong
+        # format to one of them.
+        #
+        # Desktop is one pack for all three desktops. Measured with a
+        # VRAM-compressed texture: the packs from the Windows, Linux and macOS
+        # presets are byte-identical -- each carries the same .s3tc.ctex variant --
+        # while the Android pack carries .etc2.ctex and differs. So the file is
+        # named for the family it serves, not for Windows, and is published under
+        # every desktop platform key the launcher can ask for.
         run: |
           mkdir -p build/content
           ~/godot/godot --headless --path . --export-pack "Android" build/content/content-android.pck
-          ~/godot/godot --headless --path . --export-pack "Windows Desktop" build/content/content-windows.pck
+          ~/godot/godot --headless --path . --export-pack "Windows Desktop" build/content/content-desktop.pck
 
       - name: Assemble release directory
         run: |
@@ -174,7 +182,7 @@ jobs:
           cp build/android/${{ steps.version.outputs.apk_name }} build/release/
           cp build/windows/${{ steps.version.outputs.exe_name }} build/release/
           cp build/content/content-android.pck build/release/
-          cp build/content/content-windows.pck build/release/
+          cp build/content/content-desktop.pck build/release/
 
       - name: Build update manifest
         run: |
@@ -190,7 +198,9 @@ jobs:
             --artifact "binary:android:build/release/${{ steps.version.outputs.apk_name }}" \
             --artifact "binary:windows:build/release/${{ steps.version.outputs.exe_name }}" \
             --artifact "content:android:build/release/content-android.pck" \
-            --artifact "content:windows:build/release/content-windows.pck" \
+            --artifact "content:windows:build/release/content-desktop.pck" \
+            --artifact "content:linux:build/release/content-desktop.pck" \
+            --artifact "content:macos:build/release/content-desktop.pck" \
             --out build/release/manifest.json
 
       - name: Publish release

@@ -177,6 +177,28 @@ restart goes through `ProcessPhoenix`, the restart helper already inside Godot's
 Android library; on desktop it relaunches `OS.get_executable_path()`. If neither
 works the user is simply asked to reopen the app.
 
+"Everywhere" means the manifest carries a content pack under every platform key
+`BuildInfo.platform_key()` can return for a native build — `android`, `windows`,
+`linux` and `macos` — because the launcher looks the pack up by that exact key and
+has no fallback. Two packs cover the four: mobile and desktop need different
+texture compression, but the Windows, Linux and macOS presets all produce a
+byte-identical pack, so one desktop pack is published under all three desktop
+keys. A Web export is the exception, and needs nothing: it updates by being
+re-served.
+
+### What a binary update cannot do off Android and Windows
+
+`_apply_binary()` swaps the APK on Android and the `.exe` on Windows. There is no
+equivalent for Linux or macOS, so a release whose `binary_version` is higher than
+an installed Linux or macOS build cannot be applied by the app — it opens the
+release page and asks the user to download it. Those platforms therefore have no
+`binary` entry in the manifest at all, which is what makes the launcher say so
+plainly rather than offering an update it cannot finish.
+
+Most releases do not need a new binary: `binary_version` is bumped by hand and
+only for a change a content pack cannot deliver, such as an engine upgrade, a new
+permission, or a new plugin.
+
 ## Signing
 
 **Android will not install an update over an app signed with a different key.**

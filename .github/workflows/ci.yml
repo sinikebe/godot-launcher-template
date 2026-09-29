@@ -103,10 +103,14 @@ jobs:
           ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/${{ steps.version.outputs.exe_name }}
 
       - name: Export content packs
+        # Same two packs release.yml publishes, under the same names, so this check
+        # exercises what actually ships. The desktop pack is not named for Windows:
+        # the Windows, Linux and macOS presets produce a byte-identical pack, and
+        # release.yml publishes this one file under all three desktop keys.
         run: |
           mkdir -p build/content
           ~/godot/godot --headless --path . --export-pack "Android" build/content/content-android.pck
-          ~/godot/godot --headless --path . --export-pack "Windows Desktop" build/content/content-windows.pck
+          ~/godot/godot --headless --path . --export-pack "Windows Desktop" build/content/content-desktop.pck
 
       - name: Check the shell scripts
         run: |

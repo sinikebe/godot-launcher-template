@@ -27,9 +27,11 @@ own with a scheduled job.
 
 ## What you get
 
-- **Self-updating builds.** Android APKs install over themselves; Windows swaps
-  its own `.exe`; everything else takes content packs. Every download is checked
-  against a SHA-256 before it is installed.
+- **Self-updating builds.** Content packs reach every desktop and mobile platform
+  the launcher runs on. A new *binary* installs itself on Android, which swaps the
+  APK in place, and on Windows, which swaps its own `.exe`; on Linux and macOS a
+  new binary has to be downloaded by hand, so the app opens the release page
+  instead. Every download is checked against a SHA-256 before it is installed.
 - **Two update tracks.** A `.pck` content update is tens of kilobytes and applies
   on restart. Only genuine binary changes — engine version, permissions, plugins —
   need a full APK.
