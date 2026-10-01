@@ -111,7 +111,7 @@ func check_for_updates() -> State:
 	var source := BuildInfo.launcher_source()
 	if not source.is_empty() and BuildInfo.config.update_repo == source:
 		return _finish(State.UNAVAILABLE,
-			"update_repo still points at the launcher template. Set it to this game's own repository.")
+			tr("update_repo still points at the launcher template. Set it to this game's own repository."))
 	_busy = true
 	_set_state(State.CHECKING)
 	last_error = ""
@@ -131,19 +131,19 @@ func check_for_updates() -> State:
 
 	if not response.ok:
 		if response.code == 404:
-			return _fail("No release has been published yet.")
+			return _fail(tr("No release has been published yet."))
 		return _fail(response.error)
 
 	var parsed: Variant = JSON.parse_string(response.body.get_string_from_utf8())
 	if not parsed is Dictionary:
-		return _fail("The update manifest is malformed.")
+		return _fail(tr("The update manifest is malformed."))
 
 	manifest = parsed
 	_cache_changelog()
 	var schema := int(manifest.get("schema", 0))
 	if schema > SUPPORTED_SCHEMA:
 		return _finish(State.UNAVAILABLE,
-			"This build is too old to understand the update feed. Please reinstall from GitHub.")
+			tr("This build is too old to understand the update feed. Please reinstall from GitHub."))
 
 	var platform := BuildInfo.platform_key()
 	var artifacts: Dictionary = manifest.get("artifacts", {})
@@ -155,8 +155,10 @@ func check_for_updates() -> State:
 	if remote_binary > BuildInfo.binary_version:
 		var binary_artifact := _artifact_for(artifacts, "binary", platform)
 		if binary_artifact.is_empty():
+			# tr() before %, not after: auto-translation only ever sees the finished
+			# string, which matches no msgid once a version number is in it.
 			return _finish(State.UNAVAILABLE,
-				"Version %s needs a new app build, but none is published for %s yet." % [
+				tr("Version %s needs a new app build, but none is published for %s yet.") % [
 					manifest.get("version_name", "?"), platform])
 		pending_kind = "binary"
 		pending_artifact = binary_artifact
@@ -166,7 +168,7 @@ func check_for_updates() -> State:
 	if remote_content > BuildInfo.content_version:
 		var content_artifact := _artifact_for(artifacts, "content", platform)
 		if content_artifact.is_empty():
-			return _finish(State.UNAVAILABLE, "No content pack published for %s." % platform)
+			return _finish(State.UNAVAILABLE, tr("No content pack published for %s.") % platform)
 		pending_kind = "content"
 		pending_artifact = content_artifact
 		pending_version = remote_content
@@ -222,7 +224,7 @@ func _apply_content() -> State:
 		DirAccess.remove_absolute(final_path)
 	if DirAccess.rename_absolute(staged, final_path) != OK:
 		_busy = false
-		return _fail("Could not move the downloaded content into place.")
+		return _fail(tr("Could not move the downloaded content into place."))
 
 	var size := 0
 	var probe := FileAccess.open(final_path, FileAccess.READ)
@@ -278,7 +280,7 @@ func _apply_binary() -> State:
 	# Nothing safe to automate here: point at the release page.
 	_busy = false
 	OS.shell_open(BuildInfo.config.releases_url(BuildInfo.release_branch))
-	return _finish(State.UNAVAILABLE, "Download the new build from the GitHub releases page.")
+	return _finish(State.UNAVAILABLE, tr("Download the new build from the GitHub releases page."))
 
 
 ## Hands the already-downloaded, already-verified APK to the system installer.
@@ -294,14 +296,14 @@ func _hand_off_to_installer() -> State:
 	if not AndroidBridge.can_install_packages():
 		AndroidBridge.open_install_settings()
 		return _finish(State.NEEDS_PERMISSION,
-			"Allow %s to install unknown apps, then tap Install." % BuildInfo.config.game_title)
+			tr("Allow %s to install unknown apps, then tap Install.") % BuildInfo.config.game_title)
 
 	if not AndroidBridge.install_apk(_verified_apk_path):
 		# The APK sits in private storage, so there is nothing the user could
 		# open by hand. Send them to the release page instead -- a browser
 		# download lands somewhere they can install from.
 		OS.shell_open(BuildInfo.config.releases_url(BuildInfo.release_branch))
-		return _fail("Could not open the installer. Opened the releases page so you can download the APK directly.")
+		return _fail(tr("Could not open the installer. Opened the releases page so you can download the APK directly."))
 
 	return _finish(State.INSTALL_HANDOFF, "")
 
@@ -323,7 +325,7 @@ func retry_install() -> State:
 ## hash. Returns State.VERIFYING on success, or a failure state.
 func _download_verified(url: String, dest: String) -> State:
 	if url.is_empty():
-		return _fail("The manifest entry has no download URL.")
+		return _fail(tr("The manifest entry has no download URL."))
 
 	_set_state(State.DOWNLOADING)
 	var response := await _request(url, dest)
@@ -336,12 +338,12 @@ func _download_verified(url: String, dest: String) -> State:
 	if expected.is_empty():
 		# Refuse to install something we cannot authenticate.
 		DirAccess.remove_absolute(dest)
-		return _fail("The manifest is missing a checksum for this download.")
+		return _fail(tr("The manifest is missing a checksum for this download."))
 
 	var actual := FileAccess.get_sha256(dest).to_lower()
 	if actual != expected:
 		DirAccess.remove_absolute(dest)
-		return _fail("The download is corrupted (checksum mismatch) and was discarded.")
+		return _fail(tr("The download is corrupted (checksum mismatch) and was discarded."))
 
 	return State.VERIFYING
 
@@ -383,7 +385,7 @@ func _request(url: String, download_to: String) -> Dictionary:
 		_teardown_request(http)
 		return {
 			"ok": false, "code": 0, "body": PackedByteArray(),
-			"error": "Could not start the request (error %d). Check your connection." % error,
+			"error": tr("Could not start the request (error %d). Check your connection.") % error,
 		}
 
 	var result: Array = await http.request_completed
@@ -396,7 +398,7 @@ func _request(url: String, download_to: String) -> Dictionary:
 	if outcome != HTTPRequest.RESULT_SUCCESS:
 		return {"ok": false, "code": code, "body": body, "error": _describe_transfer_failure(outcome)}
 	if code < 200 or code >= 300:
-		return {"ok": false, "code": code, "body": body, "error": "The server answered with HTTP %d." % code}
+		return {"ok": false, "code": code, "body": body, "error": tr("The server answered with HTTP %d.") % code}
 
 	return {"ok": true, "code": code, "body": body, "error": ""}
 
@@ -410,21 +412,21 @@ func _teardown_request(http: HTTPRequest) -> void:
 func _describe_transfer_failure(outcome: int) -> String:
 	match outcome:
 		HTTPRequest.RESULT_CANT_CONNECT, HTTPRequest.RESULT_CANT_RESOLVE:
-			return "Could not reach GitHub. Check your connection."
+			return tr("Could not reach GitHub. Check your connection.")
 		HTTPRequest.RESULT_TIMEOUT:
-			return "The connection timed out."
+			return tr("The connection timed out.")
 		# A peer that stalls and then drops surfaces here rather than as
 		# RESULT_TIMEOUT once the deadline is long enough not to fire first --
 		# same cause as far as the player is concerned, so say the same thing
 		# instead of falling through to a bare error number.
 		HTTPRequest.RESULT_CONNECTION_ERROR:
-			return "The connection dropped part-way through. Try again."
+			return tr("The connection dropped part-way through. Try again.")
 		HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
-			return "Secure connection failed."
+			return tr("Secure connection failed.")
 		HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN, HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR:
-			return "Could not write the download to storage. Is the device full?"
+			return tr("Could not write the download to storage. Is the device full?")
 		_:
-			return "The download failed (error %d)." % outcome
+			return tr("The download failed (error %d).") % outcome
 
 
 # ---------------------------------------------------------------------------
@@ -470,11 +472,11 @@ func _apply_windows_binary(url: String) -> State:
 
 	if OS.has_feature("editor"):
 		return _finish(State.UNAVAILABLE,
-			"Running from the editor — the new build was saved to %s." %
+			tr("Running from the editor — the new build was saved to %s.") %
 				ProjectSettings.globalize_path(staged))
 
 	if not _spawn_windows_swap(staged, OS.get_executable_path()):
-		return _fail("Could not start the updater. The new build is at %s." %
+		return _fail(tr("Could not start the updater. The new build is at %s.") %
 			ProjectSettings.globalize_path(staged))
 
 	get_tree().quit()
@@ -638,9 +640,9 @@ func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> St
 		var changes: Array = entry.get("changes", [])
 
 		var version := int(entry.get("content_version", 0))
-		var heading := "v%s  ·  build %d" % [entry.get("version_name", "?"), version]
+		var heading := tr("v%s  ·  build %d") % [entry.get("version_name", "?"), version]
 		if mark_installed and version == BuildInfo.content_version:
-			heading += "     ← installed"
+			heading += tr("     ← installed")
 
 		if lines.size() >= max_lines:
 			dropped += changes.size()
@@ -660,7 +662,10 @@ func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> St
 		return ""
 	if dropped > 0:
 		lines.append("")
-		lines.append("…and %d more change%s." % [dropped, "" if dropped == 1 else "s"])
+		# tr_n(), not tr(): the old form appended an English "s", which no language
+		# with different plural rules can express. A translator gets both forms and
+		# gettext picks by its own rules.
+		lines.append(tr_n("…and %d more change.", "…and %d more changes.", dropped) % dropped)
 	return "\n".join(lines)
 
 
@@ -699,23 +704,23 @@ func _read_cached_changelog() -> Array:
 func status_text() -> String:
 	match state:
 		State.IDLE:
-			return "Not checked yet."
+			return tr("Not checked yet.")
 		State.CHECKING:
-			return "Checking for updates…"
+			return tr("Checking for updates…")
 		State.UP_TO_DATE:
-			return "Up to date."
+			return tr("Up to date.")
 		State.DOWNLOADING:
-			return "Downloading…"
+			return tr("Downloading…")
 		State.VERIFYING:
-			return "Verifying download…"
+			return tr("Verifying download…")
 		State.CONTENT_READY:
-			return "Content update available (v%s)." % manifest.get("version_name", pending_version)
+			return tr("Content update available (v%s).") % manifest.get("version_name", pending_version)
 		State.BINARY_READY:
-			return "New app version available (v%s)." % manifest.get("version_name", pending_version)
+			return tr("New app version available (v%s).") % manifest.get("version_name", pending_version)
 		State.RESTART_REQUIRED:
-			return "Update ready — restart to finish."
+			return tr("Update ready — restart to finish.")
 		State.INSTALL_HANDOFF:
-			return "Handed over to the installer."
+			return tr("Handed over to the installer.")
 		State.NEEDS_PERMISSION, State.UNAVAILABLE, State.FAILED:
 			return last_error
 		_:

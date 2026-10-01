@@ -132,10 +132,9 @@ static func branch_is_valid(branch: String) -> bool:
 ## was built to follow.
 func update_config_error(branch: String = "") -> String:
 	if update_repo.is_empty():
-		return "No update repository configured (set update_repo in the launcher config)."
+		return tr("No update repository configured (set update_repo in the launcher config).")
 	if not branch_is_valid(branch):
-		return ("This build was stamped for branch \"%s\", which is not a usable branch name: "
-			+ "letters, digits, dot, underscore and hyphen only, starting with a letter or digit.") % branch
+		return tr("This build was stamped for branch \"%s\", which is not a usable branch name: letters, digits, dot, underscore and hyphen only, starting with a letter or digit.") % branch
 	return ""
 
 
@@ -185,7 +184,14 @@ func updates_enabled() -> bool:
 
 
 ## Fills the tagline placeholders. Returns "" when there is no tagline to show.
+##
+## The tagline is translated here, before the placeholders are filled, and not by
+## the Label's own auto-translation. A tagline using {build} or {version} reaches
+## the Label already substituted, so it matches no msgid -- which left a game
+## unable to translate its own tagline, with the substitution in launcher-owned
+## code it could not reach. The msgid a game puts in its .po is the tagline as
+## written, placeholders and all.
 func resolved_tagline(version_name: String, content_version: int) -> String:
 	if tagline.is_empty():
 		return ""
-	return tagline.replace("{build}", str(content_version)).replace("{version}", version_name)
+	return tr(tagline).replace("{build}", str(content_version)).replace("{version}", version_name)

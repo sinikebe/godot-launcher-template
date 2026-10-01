@@ -226,10 +226,9 @@ func _on_play_pressed() -> void:
 	play_requested.emit()
 	if _config.play_scene.is_empty():
 		_show_overlay(
-			"Not wired up yet",
-			"This is where the game starts. Set play_scene in the launcher config, "
-			+ "or connect the launcher's play_requested signal to take over.",
-			"OK", Callable(self, "_hide_overlay"), "")
+			tr("Not wired up yet"),
+			tr("This is where the game starts. Set play_scene in the launcher config, or connect the launcher's play_requested signal to take over."),
+			tr("OK"), Callable(self, "_hide_overlay"), "")
 		return
 	get_tree().change_scene_to_file(_config.play_scene)
 
@@ -264,10 +263,9 @@ func _on_update_state_changed(_new_state: int) -> void:
 			_prompt_restart()
 		UpdateService.State.INSTALL_HANDOFF:
 			_show_overlay(
-				"Installing",
-				"Confirm the update in the system installer. The game will reopen "
-				+ "on the new version once the install finishes.",
-				"OK", Callable(self, "_hide_overlay"), "")
+				tr("Installing"),
+				tr("Confirm the update in the system installer. The game will reopen on the new version once the install finishes."),
+				tr("OK"), Callable(self, "_hide_overlay"), "")
 		_:
 			pass
 
@@ -290,35 +288,40 @@ func _refresh_update_ui() -> void:
 	# dialog then skips for having no changes, which is exactly what a release of
 	# nothing but chore commits produces.
 	_notes_button.visible = UpdateService.has_notes()
+	# Set from code, not left to the scene's own literal, so that every string the
+	# launcher owns reaches a translator through a tr() call -- which is what lets
+	# ci/make_pot.py find them all by reading the scripts alone, with no list of
+	# scene properties to keep in step.
+	_notes_button.text = tr("What's new")
 
 	match UpdateService.state:
 		UpdateService.State.BINARY_READY:
-			_update_button.text = "Update app"
+			_update_button.text = tr("Update app")
 		UpdateService.State.CONTENT_READY:
-			_update_button.text = "Download update"
+			_update_button.text = tr("Download update")
 		UpdateService.State.NEEDS_PERMISSION:
-			_update_button.text = "Install"
+			_update_button.text = tr("Install")
 		UpdateService.State.RESTART_REQUIRED:
-			_update_button.text = "Restart"
+			_update_button.text = tr("Restart")
 		UpdateService.State.CHECKING:
-			_update_button.text = "Checking…"
+			_update_button.text = tr("Checking…")
 		UpdateService.State.DOWNLOADING, UpdateService.State.VERIFYING:
-			_update_button.text = "Working…"
+			_update_button.text = tr("Working…")
 		_:
-			_update_button.text = "Check for updates"
+			_update_button.text = tr("Check for updates")
 
 
 func _on_progress_changed(downloaded: int, total: int) -> void:
 	if total > 0:
 		_progress.max_value = total
 		_progress.value = downloaded
-		_status_label.text = "Downloading… %s of %s" % [
+		_status_label.text = tr("Downloading… %s of %s") % [
 			_format_bytes(downloaded), _format_bytes(total)]
 	else:
 		# No Content-Length: show motion without a bogus percentage.
 		_progress.max_value = 1
 		_progress.value = 0
-		_status_label.text = "Downloading… %s" % _format_bytes(downloaded)
+		_status_label.text = tr("Downloading… %s") % _format_bytes(downloaded)
 
 
 ## Shows what the update actually contains before spending a download on it.
@@ -331,14 +334,14 @@ func _prompt_update() -> void:
 
 	var is_binary := UpdateService.state == UpdateService.State.BINARY_READY
 	var size := _format_bytes(int(UpdateService.pending_artifact.get("size", 0)))
-	var summary := ("New app build · %s" if is_binary else "Content update · %s") % size
+	var summary := (tr("New app build · %s") if is_binary else tr("Content update · %s")) % size
 
 	_show_overlay(
-		"What's new in v%s" % UpdateService.manifest.get("version_name", "?"),
+		tr("What's new in v%s") % UpdateService.manifest.get("version_name", "?"),
 		"%s\n\n%s" % [summary, notes],
-		"Update now" if is_binary else "Download",
+		tr("Update now") if is_binary else tr("Download"),
 		Callable(self, "_do_apply"),
-		"Later")
+		tr("Later"))
 
 
 func _do_apply() -> void:
@@ -346,19 +349,21 @@ func _do_apply() -> void:
 
 
 func _prompt_restart() -> void:
-	var body := "The update is downloaded. The game needs to restart to finish applying it."
+	var body := tr("The update is downloaded. The game needs to restart to finish applying it.")
 	if OS.has_feature("editor"):
-		body += "\n\nRunning from the editor: stop and play the project again."
-	_show_overlay("Update ready", body, "Restart now", Callable(self, "_do_restart"), "Later")
+		# The separator stays out of the msgid: a translator should not have to
+		# carry leading newlines through their file to keep the layout.
+		body += "\n\n" + tr("Running from the editor: stop and play the project again.")
+	_show_overlay(tr("Update ready"), body, tr("Restart now"), Callable(self, "_do_restart"), tr("Later"))
 
 
 func _do_restart() -> void:
 	if UpdateService.restart_app():
 		return
 	_show_overlay(
-		"Restart needed",
-		"Close the game and open it again to finish the update.",
-		"OK", Callable(self, "_hide_overlay"), "")
+		tr("Restart needed"),
+		tr("Close the game and open it again to finish the update."),
+		tr("OK"), Callable(self, "_hide_overlay"), "")
 
 
 # ---------------------------------------------------------------------------
@@ -370,12 +375,11 @@ func _show_history() -> void:
 	var history := UpdateService.history_text()
 	if history.is_empty():
 		_show_overlay(
-			"Patch notes",
-			"Nothing recorded yet. Notes arrive with the first successful update "
-			+ "check — tap \"Check for updates\" once you're online.",
-			"Close", Callable(self, "_hide_overlay"), "")
+			tr("Patch notes"),
+			tr("Nothing recorded yet. Notes arrive with the first successful update check — tap \"Check for updates\" once you're online."),
+			tr("Close"), Callable(self, "_hide_overlay"), "")
 		return
-	_show_overlay("Patch notes", history, "Close",
+	_show_overlay(tr("Patch notes"), history, tr("Close"),
 		Callable(self, "_hide_overlay"), "", HISTORY_VIEW_HEIGHT)
 
 
@@ -421,7 +425,7 @@ func _on_overlay_primary() -> void:
 
 func _format_bytes(count: int) -> String:
 	if count < 1024:
-		return "%d B" % count
+		return tr("%d B") % count
 	if count < 1024 * 1024:
-		return "%.1f KB" % (count / 1024.0)
-	return "%.1f MB" % (count / (1024.0 * 1024.0))
+		return tr("%.1f KB") % (count / 1024.0)
+	return tr("%.1f MB") % (count / (1024.0 * 1024.0))
