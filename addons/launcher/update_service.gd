@@ -642,7 +642,9 @@ func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> St
 		var version := int(entry.get("content_version", 0))
 		var heading := tr("v%s  ·  build %d") % [entry.get("version_name", "?"), version]
 		if mark_installed and version == BuildInfo.content_version:
-			heading += tr("     ← installed")
+			# "<-" and not "←": the bundled theme uses Godot's built-in font, which
+			# has no glyph for U+2190 -- it measured zero width and drew nothing.
+			heading += tr("     <- installed")
 
 		if lines.size() >= max_lines:
 			dropped += changes.size()
