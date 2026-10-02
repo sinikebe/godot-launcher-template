@@ -112,10 +112,10 @@ scene out of `res://`. Set the main scene to
 
 ## Making it yours
 
-Everything below is set on your `LauncherConfig`: its fields, and one method
-for running code of your own. **Nothing in `addons/launcher/` should ever need
-editing** — that directory is replaced wholesale on every sync, so local edits
-there are silently reverted.
+Everything below is a field on your `LauncherConfig`, apart from one optional
+script for running code of your own. **Nothing in `addons/launcher/` should
+ever need editing** — that directory is replaced wholesale on every sync, so
+local edits there are silently reverted.
 
 ### Identity
 
@@ -153,8 +153,9 @@ horizontal and a vertical alignment, so either can go in any of nine spots.
 `show_play` / `play_text`, `show_quit` / `quit_text`, and `extra_buttons` — a
 list of labels inserted between them. Pressing one emits
 `custom_button_pressed(label)`, so a game adds Settings or Credits without
-touching the launcher. Connect it from your config's `_launcher_opening()` —
-see [Your own code on the launcher's screen](#your-own-code-on-the-launchers-screen):
+touching the launcher. Connect it from `_launcher_opening()` in
+`res://launcher_hooks.gd` — see
+[Your own code on the launcher's screen](#your-own-code-on-the-launchers-screen):
 
 ```gdscript
 func _launcher_opening(launcher: Control) -> void:
@@ -164,8 +165,8 @@ func _launcher_opening(launcher: Control) -> void:
 ```
 
 `play_scene` is what Play loads. Leave it empty and Play says so instead of
-failing silently; connect `play_requested` the same way to take the action
-over entirely.
+failing silently — unless you connect `play_requested` the same way, which with
+`play_scene` empty takes the Play action over entirely.
 
 ### Version stamp
 
@@ -193,15 +194,16 @@ the default dark-green one.
 
 ### Your own code on the launcher's screen
 
-The launcher is the main scene, so none of your scripts is loaded while it is
-showing. To run some, write a script that extends `LauncherConfig` and
-overrides `_launcher_opening()`. Then make it the script of your
-`launcher_config.tres`: select the resource and set its **Script** in the
-inspector.
+The launcher is the main scene, so unless you have added an autoload, none of
+your code runs while it is showing. To run some, create
+**`res://launcher_hooks.gd`** with a `_launcher_opening()` function. The
+launcher looks for that file and calls the function each time it opens: at
+launch, and again whenever your game returns to it. That happens after any
+content pack has been mounted and before the launcher builds anything, so
+whatever it sets up is in force on the first frame.
 
 ```gdscript
-extends LauncherConfig
-
+# res://launcher_hooks.gd
 func _launcher_opening(launcher: Control) -> void:
     launcher.register_translations(["res://locale/"])
 
@@ -214,29 +216,25 @@ func _launcher_opening(launcher: Control) -> void:
             launcher.get_tree().change_scene_to_file("res://settings.tscn"))
 ```
 
-It runs every time the launcher opens: at launch, and again whenever your game
-returns to it. It runs after any content pack has been mounted and before the
-launcher builds anything, so whatever it sets up is in force on the first frame.
+**Content updates can change it.** The file is yours and lives outside the
+directories the sync replaces. It ships in content packs like any other script,
+and the launcher that runs it is the content pack's own, so changing it never
+needs a new app build — even on app builds made before this file existed.
+Adding an autoload, or a scene of yours around the launcher, means changing
+project settings, which a content pack cannot do.
 
-**Content updates can change it.** The script is yours and lives outside
-`addons/launcher/`, so the sync never touches it. It ships in content packs like
-any other script, so changing it never needs a new app build. The alternatives
-do: an autoload of your own, or a scene of yours around the launcher, are both
-project settings, and a content pack cannot change those. It also works on app
-builds made before this method existed. The launcher in the content pack calls
-it by name, and only when your config defines it.
+Things to watch:
 
-Three things to watch:
-
-- **Use `_launcher_opening()`, not `_init()`.** The config is loaded while the
-  launcher's own autoloads are still starting, so `BuildInfo` and
-  `UpdateService` cannot be used from `_init()`.
-- **Don't `await` in it.** The launcher builds its screen as soon as the method
-  returns.
-- **A parse error in the script loses the whole config.** The launcher falls
-  back to its defaults, without your title or your buttons, and logs
-  `is not a LauncherConfig; using defaults`. Look for that line before you ship.
-  An error at runtime is milder: it stops the rest of the method, and nothing
+- **It runs against every app build your players still have.** `BuildInfo`
+  and its `config` belong to the installed app, so a member newer than your
+  oldest build is not there on older devices: test for it by name
+  (`"field" in BuildInfo.config`, `has_method()`) instead of reading it outright.
+- **Don't `await` in it.** The launcher builds its screen as soon as the
+  function returns.
+- **A broken file costs only itself.** If the file fails to parse, the launcher
+  logs `launcher_hooks.gd could not be loaded; carrying on without it` and runs
+  normally, updates included, so the next content update can repair it. An
+  error while the function runs stops the rest of the function, and nothing
   else.
 
 ### Language
@@ -256,23 +254,33 @@ generated by `ci/make_pot.py`.
 2. Put them in **`res://locale/`**, not in `addons/launcher/` and not in `ci/`.
    Those two directories are replaced wholesale on every launcher sync, so a
    `.po` left inside either is deleted without warning.
-3. **Register them from your config's `_launcher_opening()`**, with
-   `launcher.register_translations(["res://locale/"])` — see
+3. **Register them from `_launcher_opening()` in `res://launcher_hooks.gd`**,
+   with `launcher.register_translations(["res://locale/"])` — see
    [Your own code on the launcher's screen](#your-own-code-on-the-launchers-screen).
    Don't use Project Settings → Localization. Godot reads that list from the
    installed app at startup, before the launcher mounts a content pack, so a
    catalog listed there only changes with a new app build. A corrected string,
    or a whole new language, shipped as a content update would never be read.
    `register_translations()` reads what `res://` holds right now, content pack
-   included. It also replaces any catalog the app already loaded from Project
-   Settings, so a game that registered its catalogs there before gets content
-   updates to them too, from the first content update that calls it.
+   included. A catalog the app already loaded from Project Settings **at the
+   same path** is replaced by the pack's copy, so a game that registered its
+   catalogs there before gets content updates to them too.
+
+   **Keep each catalog's path and file name the same from release to
+   release.** A content update can replace a file but never remove one, so a
+   catalog that is moved, renamed or converted to another format leaves its
+   old copy in the installed app. That copy is still registered, from Project
+   Settings or because you passed its folder, and its old strings can win over
+   the new ones. If you must rename a catalog, pass the files by name instead
+   of the folder, and drop the old path from Project Settings in your next app
+   build.
 
 Godot picks the language from the device. To let players choose their own,
 call `TranslationServer.set_locale()` from `_launcher_opening()` as well, with
 the language they saved, so the first screen is already in it. The launcher's
 screen also follows a language change while it is showing, such as one made
-in a settings panel drawn over it.
+in a settings panel drawn over it. An update error already on screen keeps its
+language until the next check, which runs each time the launcher opens.
 
 Two limits worth knowing before you translate. The bundled theme uses Godot's
 built-in font, which covers Latin, Latin-Extended, Cyrillic, Greek and Hebrew —

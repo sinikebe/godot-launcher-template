@@ -138,7 +138,8 @@ cp /tmp/lt/.github/workflows/*.yml .github/workflows/
 there are reverted without warning.
 
 **Fix:** make the change in the template repository, or — if it is specific to
-your game — see whether `launcher_config.tres` already exposes it. If the
+your game — see whether `launcher_config.tres` already exposes it, or whether
+`_launcher_opening()` in `res://launcher_hooks.gd` can do it. If the
 launcher genuinely cannot express what you need, that is worth raising upstream
 rather than patching locally.
 

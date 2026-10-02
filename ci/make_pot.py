@@ -63,11 +63,11 @@ HEADER = '''# Translation template for the launcher's own screens.
 # replaced wholesale by ci/sync_launcher.sh, so a .po left inside either one is
 # deleted on the next launcher sync.
 #
-# Register them with launcher.register_translations(["res://locale/"]) in your
-# LauncherConfig's _launcher_opening() -- see the README. NOT in project.godot
-# (internationalization/locale/translations): Godot reads that list from the
-# installed app, before any content pack is mounted, so a catalog listed there
-# can never be corrected or added to by a content update.
+# Register them with launcher.register_translations(["res://locale/"]) from
+# _launcher_opening() in res://launcher_hooks.gd -- see the README. Not in
+# project.godot (internationalization/locale/translations): Godot reads that
+# list from the installed app before any content pack is mounted, so a catalog
+# listed only there changes only with a new app build.
 #
 msgid ""
 msgstr ""

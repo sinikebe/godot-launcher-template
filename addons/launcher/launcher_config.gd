@@ -7,9 +7,6 @@ extends Resource
 ## `launcher/config_path` project setting at it if you keep it somewhere else.
 ## Nothing in addons/launcher/ should need editing to reskin a launcher -- that
 ## directory is overwritten wholesale whenever the launcher template updates.
-##
-## To run your own code on the launcher's screen, give the resource a script of
-## your own that extends this one and overrides [method _launcher_opening].
 
 # ---------------------------------------------------------------------------
 @export_group("Identity")
@@ -101,25 +98,6 @@ var background_stretch: int = 3
 
 ## Replaces the launcher's bundled theme wholesale. Leave empty to keep it.
 @export var theme_override: Theme
-
-
-## Override in a script that extends LauncherConfig to run your own code each
-## time the launcher opens -- after any content pack is mounted, before the
-## launcher builds anything. Typical uses: register your translation catalogs
-## with [code]launcher.register_translations()[/code], apply a language the
-## player saved with [method TranslationServer.set_locale], and connect
-## [code]launcher.custom_button_pressed[/code] or
-## [code]launcher.play_requested[/code].
-##
-## Do not await in it: the launcher does not wait, and builds its screen as soon
-## as this returns.
-##
-## Unlike an autoload or a different main scene, which are project settings and
-## so need a new binary, this script ships in content packs like any other, so a
-## content update can change it. That includes a binary built before this method
-## existed here: the launcher calls it by name, and only when it is defined.
-func _launcher_opening(_launcher: Control) -> void:
-	pass
 
 
 ## True when [param branch] is empty, or is a name usable verbatim as a git tag
