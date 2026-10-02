@@ -25,7 +25,7 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 
-#: addons/launcher/update_service.gd:647
+#: addons/launcher/update_service.gd:730
 msgid "     <- installed"
 msgstr ""
 
@@ -41,7 +41,7 @@ msgstr ""
 msgid "%d B"
 msgstr ""
 
-#: addons/launcher/update_service.gd:299
+#: addons/launcher/update_service.gd:382
 msgid "Allow %s to install unknown apps, then tap Install."
 msgstr ""
 
@@ -49,7 +49,7 @@ msgstr ""
 msgid "Check for updates"
 msgstr ""
 
-#: addons/launcher/update_service.gd:711
+#: addons/launcher/update_service.gd:794
 msgid "Checking for updates…"
 msgstr ""
 
@@ -70,7 +70,7 @@ msgstr ""
 msgid "Confirm the update in the system installer. The game will reopen on the new version once the install finishes."
 msgstr ""
 
-#: addons/launcher/update_service.gd:719
+#: addons/launcher/update_service.gd:802
 msgid "Content update available (v%s)."
 msgstr ""
 
@@ -78,27 +78,27 @@ msgstr ""
 msgid "Content update · %s"
 msgstr ""
 
-#: addons/launcher/update_service.gd:227
+#: addons/launcher/update_service.gd:310
 msgid "Could not move the downloaded content into place."
 msgstr ""
 
-#: addons/launcher/update_service.gd:306
+#: addons/launcher/update_service.gd:389
 msgid "Could not open the installer. Opened the releases page so you can download the APK directly."
 msgstr ""
 
-#: addons/launcher/update_service.gd:415
+#: addons/launcher/update_service.gd:498
 msgid "Could not reach GitHub. Check your connection."
 msgstr ""
 
-#: addons/launcher/update_service.gd:388
+#: addons/launcher/update_service.gd:471
 msgid "Could not start the request (error %d). Check your connection."
 msgstr ""
 
-#: addons/launcher/update_service.gd:479
+#: addons/launcher/update_service.gd:562
 msgid "Could not start the updater. The new build is at %s."
 msgstr ""
 
-#: addons/launcher/update_service.gd:427
+#: addons/launcher/update_service.gd:510
 msgid "Could not write the download to storage. Is the device full?"
 msgstr ""
 
@@ -106,7 +106,7 @@ msgstr ""
 msgid "Download"
 msgstr ""
 
-#: addons/launcher/update_service.gd:283
+#: addons/launcher/update_service.gd:366
 msgid "Download the new build from the GitHub releases page."
 msgstr ""
 
@@ -114,7 +114,7 @@ msgstr ""
 msgid "Download update"
 msgstr ""
 
-#: addons/launcher/update_service.gd:715
+#: addons/launcher/update_service.gd:798
 msgid "Downloading…"
 msgstr ""
 
@@ -129,7 +129,7 @@ msgstr ""
 msgid "Downloading… %s of %s"
 msgstr ""
 
-#: addons/launcher/update_service.gd:725
+#: addons/launcher/update_service.gd:808
 msgid "Handed over to the installer."
 msgstr ""
 
@@ -150,23 +150,24 @@ msgstr ""
 msgid "New app build · %s"
 msgstr ""
 
-#: addons/launcher/update_service.gd:721
+#: addons/launcher/update_service.gd:804
 msgid "New app version available (v%s)."
 msgstr ""
 
-#: addons/launcher/update_service.gd:171
+#: addons/launcher/update_service.gd:254
 msgid "No content pack published for %s."
 msgstr ""
 
-#: addons/launcher/update_service.gd:134
+#: addons/launcher/update_service.gd:217
 msgid "No release has been published yet."
 msgstr ""
 
 #: addons/launcher/launcher_config.gd:135
+#: addons/launcher/update_service.gd:126
 msgid "No update repository configured (set update_repo in the launcher config)."
 msgstr ""
 
-#: addons/launcher/update_service.gd:709
+#: addons/launcher/update_service.gd:792
 msgid "Not checked yet."
 msgstr ""
 
@@ -201,7 +202,7 @@ msgstr ""
 msgid "Restart now"
 msgstr ""
 
-#: addons/launcher/update_service.gd:475
+#: addons/launcher/update_service.gd:558
 msgid "Running from the editor — the new build was saved to %s."
 msgstr ""
 
@@ -209,35 +210,35 @@ msgstr ""
 msgid "Running from the editor: stop and play the project again."
 msgstr ""
 
-#: addons/launcher/update_service.gd:425
+#: addons/launcher/update_service.gd:508
 msgid "Secure connection failed."
 msgstr ""
 
-#: addons/launcher/update_service.gd:423
+#: addons/launcher/update_service.gd:506
 msgid "The connection dropped part-way through. Try again."
 msgstr ""
 
-#: addons/launcher/update_service.gd:417
+#: addons/launcher/update_service.gd:500
 msgid "The connection timed out."
 msgstr ""
 
-#: addons/launcher/update_service.gd:429
+#: addons/launcher/update_service.gd:512
 msgid "The download failed (error %d)."
 msgstr ""
 
-#: addons/launcher/update_service.gd:346
+#: addons/launcher/update_service.gd:429
 msgid "The download is corrupted (checksum mismatch) and was discarded."
 msgstr ""
 
-#: addons/launcher/update_service.gd:328
+#: addons/launcher/update_service.gd:411
 msgid "The manifest entry has no download URL."
 msgstr ""
 
-#: addons/launcher/update_service.gd:341
+#: addons/launcher/update_service.gd:424
 msgid "The manifest is missing a checksum for this download."
 msgstr ""
 
-#: addons/launcher/update_service.gd:401
+#: addons/launcher/update_service.gd:484
 msgid "The server answered with HTTP %d."
 msgstr ""
 
@@ -245,11 +246,15 @@ msgstr ""
 msgid "The update is downloaded. The game needs to restart to finish applying it."
 msgstr ""
 
-#: addons/launcher/update_service.gd:139
+#: addons/launcher/update_service.gd:222
 msgid "The update manifest is malformed."
 msgstr ""
 
-#: addons/launcher/update_service.gd:146
+#: addons/launcher/update_service.gd:132
+msgid "This build follows branch \"%s\", but its launcher config cannot. Install the branch's current build."
+msgstr ""
+
+#: addons/launcher/update_service.gd:229
 msgid "This build is too old to understand the update feed. Please reinstall from GitHub."
 msgstr ""
 
@@ -261,7 +266,7 @@ msgstr ""
 msgid "This is where the game starts. Set play_scene in the launcher config, or connect the launcher's play_requested signal to take over."
 msgstr ""
 
-#: addons/launcher/update_service.gd:713
+#: addons/launcher/update_service.gd:796
 msgid "Up to date."
 msgstr ""
 
@@ -277,15 +282,15 @@ msgstr ""
 msgid "Update ready"
 msgstr ""
 
-#: addons/launcher/update_service.gd:723
+#: addons/launcher/update_service.gd:806
 msgid "Update ready — restart to finish."
 msgstr ""
 
-#: addons/launcher/update_service.gd:717
+#: addons/launcher/update_service.gd:800
 msgid "Verifying download…"
 msgstr ""
 
-#: addons/launcher/update_service.gd:161
+#: addons/launcher/update_service.gd:244
 #. NOTE: more than one placeholder. To reorder them, use
 #. indexed forms (%1$s, %2$d, …). Swapping a bare %s and %d
 #. is a runtime error, not a typo.
@@ -304,18 +309,18 @@ msgstr ""
 msgid "Working…"
 msgstr ""
 
-#: addons/launcher/update_service.gd:114
+#: addons/launcher/update_service.gd:197
 msgid "update_repo still points at the launcher template. Set it to this game's own repository."
 msgstr ""
 
-#: addons/launcher/update_service.gd:643
+#: addons/launcher/update_service.gd:726
 #. NOTE: more than one placeholder. To reorder them, use
 #. indexed forms (%1$s, %2$d, …). Swapping a bare %s and %d
 #. is a runtime error, not a typo.
 msgid "v%s  ·  build %d"
 msgstr ""
 
-#: addons/launcher/update_service.gd:670
+#: addons/launcher/update_service.gd:753
 msgid "…and %d more change."
 msgid_plural "…and %d more changes."
 msgstr[0] ""

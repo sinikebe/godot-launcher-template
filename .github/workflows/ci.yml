@@ -39,6 +39,14 @@ jobs:
         # sees. Regenerate and diff rather than trust.
         run: python3 ci/make_pot.py --check
 
+      - name: Check launcher code still runs on older binaries
+        # A content pack carries this launcher to every binary the game ever
+        # shipped, but BuildInfo and LauncherConfig stay at the binary's version.
+        # A direct read of a member an older one lacks breaks it at runtime, in
+        # #70's case the updater itself, beyond repair from inside the app. Reads
+        # the whole history, which is why the checkout above is fetch-depth: 0.
+        run: python3 ci/check_binary_skew.py
+
       - name: Set up Java
         uses: actions/setup-java@v6
         with:
