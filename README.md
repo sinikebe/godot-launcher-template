@@ -190,7 +190,9 @@ request `no-launcher-bump` for a change that genuinely does not warrant one.
 ### Look
 
 `theme_override` replaces the bundled theme wholesale. Leave it empty to keep
-the default dark-green one.
+the default dark-green one. One thing it cannot style is a panel around the
+update dialog's text: the dialog's own `PanelContainer` panel is its frame, so
+the text area ignores the theme's `ScrollContainer` panel.
 
 ### Your own code on the launcher's screen
 

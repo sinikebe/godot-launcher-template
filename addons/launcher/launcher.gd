@@ -110,6 +110,12 @@ func _ready() -> void:
 	_overlay_primary.pressed.connect(_on_overlay_primary)
 	_overlay_secondary.pressed.connect(_hide_overlay)
 	_overlay.resized.connect(_fit_overlay)
+	# The dialog's own panel is its frame, so the text area draws none of its
+	# own, whatever a game's theme gives ScrollContainer. Margins there would also
+	# undo _fit_overlay(): Godot 4.7 holds the scroll to its cap but reports the
+	# cap plus those margins as its minimum height, and the dialog stacks its
+	# buttons after the larger figure -- below its own frame, and off screen.
+	_overlay_scroll.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 
 	UpdateService.state_changed.connect(_on_update_state_changed)
 	UpdateService.progress_changed.connect(_on_progress_changed)
@@ -609,7 +615,8 @@ func _show_overlay(title: String, body: String, primary_text: String,
 ## to custom_maximum_size and scrolls only past it, so short text still gets a
 ## dialog that fits around it.
 ##
-## Runs again whenever the screen changes size, e.g. a phone rotating.
+## Runs again whenever the screen changes size: a desktop window resized, or a
+## phone turning in a game that allows both orientations.
 func _fit_overlay() -> void:
 	var rest_of_dialog := _overlay_dialog.get_theme_stylebox("panel").get_minimum_size().y \
 		+ _overlay_title.get_combined_minimum_size().y \
