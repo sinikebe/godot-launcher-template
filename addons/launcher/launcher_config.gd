@@ -76,7 +76,9 @@ var background_stretch: int = 3
 # ---------------------------------------------------------------------------
 @export_group("Game")
 
-## Scene that Play loads. While empty, Play explains itself instead of failing.
+## Scene that Play loads. While empty, Play explains itself instead of failing --
+## unless the game has connected the launcher's play_requested signal, which then
+## takes Play over.
 @export_file("*.tscn") var play_scene: String = ""
 
 # ---------------------------------------------------------------------------
@@ -191,6 +193,10 @@ func updates_enabled() -> bool:
 ## unable to translate its own tagline, with the substitution in launcher-owned
 ## code it could not reach. The msgid a game puts in its .po is the tagline as
 ## written, placeholders and all.
+##
+## The launcher itself no longer calls this: it does the same in launcher.gd,
+## which ships in content packs, because this class runs at the installed
+## binary's version and older binaries never translated here.
 func resolved_tagline(version_name: String, content_version: int) -> String:
 	if tagline.is_empty():
 		return ""

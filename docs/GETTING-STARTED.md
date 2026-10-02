@@ -144,6 +144,8 @@ The next build picks them up automatically.
 | `launcher_config.tres` | Title, background, button placement, buttons — [full list](../README.md#making-it-yours) |
 | `version.json` | Game name and version numbers |
 | `export_presets.cfg` | Android package id, icons, architectures |
+| `launcher_hooks.gd` (optional) | Your own code on the launcher's screen — [how](../README.md#your-own-code-on-the-launchers-screen) |
+| `locale/` | Your translations, `.po` per language — [how](../README.md#language) |
 | your own scenes | The actual game |
 
 | Leave alone | |
@@ -152,7 +154,8 @@ The next build picks them up automatically.
 | `ci/` | Build scripts. Also replaced |
 
 Editing those two is the most common mistake: it works until the next sync
-quietly reverts it. Everything you legitimately need is in the config.
+quietly reverts it. Everything you legitimately need is in the config,
+`launcher_hooks.gd` or `locale/`.
 
 Each of them carries a copy of the launcher's MIT `LICENSE`, which is how the
 terms reach you at all — the sync only ever copies those two directories. Leave
@@ -166,8 +169,11 @@ setup. Afterwards it will not delete it for you — `rm LICENSE` yourself.
 In `launcher_config.tres`, set **`play_scene`** to your first scene. Until then
 Play explains itself rather than failing silently.
 
-For more control, connect the launcher's `play_requested` signal and do
-whatever you like instead.
+For more control, leave `play_scene` empty and connect the launcher's
+`play_requested` signal, then do whatever you like instead. Connect it from
+`_launcher_opening()` in `res://launcher_hooks.gd`
+([Your own code on the launcher's screen](../README.md#your-own-code-on-the-launchers-screen)),
+which is also where your translations and a player's chosen language go.
 
 ## Staying up to date
 

@@ -34,7 +34,11 @@ It is monotonic, moves on every merge, and needs no bookkeeping.
    *strictly greater* than the binary's own content version, the pack is mounted
    with `ProjectSettings.load_resource_pack()`. Anything at or below is stale —
    it was superseded by a binary update — and gets deleted.
-3. The main scene loads, already seeing the pack's content.
+3. The main scene loads, already seeing the pack's content. Before the
+   launcher builds its screen it runs `_launcher_opening()` from the game's
+   `res://launcher_hooks.gd`, when there is one. That file ships in the pack
+   too, so catalogs and a language it registers are the pack's, from the first
+   frame.
 4. The menu fetches the manifest and decides what, if anything, to offer.
 
 Packs are stored per-version (`user://content/content-<n>.pck`) rather than

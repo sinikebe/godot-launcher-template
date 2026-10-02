@@ -61,9 +61,13 @@ HEADER = '''# Translation template for the launcher's own screens.
 # Put your .po files OUTSIDE addons/launcher/ and OUTSIDE ci/ --
 # res://locale/<lang>.po is the usual home. Both of those directories are
 # replaced wholesale by ci/sync_launcher.sh, so a .po left inside either one is
-# deleted on the next launcher sync. Register them in project.godot under
-# internationalization/locale/translations, which is a game-owned file and
-# survives the sync.
+# deleted on the next launcher sync.
+#
+# Register them with launcher.register_translations(["res://locale/"]) from
+# _launcher_opening() in res://launcher_hooks.gd -- see the README. Not in
+# project.godot (internationalization/locale/translations): Godot reads that
+# list from the installed app before any content pack is mounted, so a catalog
+# listed only there changes only with a new app build.
 #
 msgid ""
 msgstr ""
@@ -160,8 +164,9 @@ def collect() -> dict[tuple[str, str | None], dict]:
                 )
             else:
                 # tr(variable): intentional for a value supplied by the game, which
-                # has no msgid to extract. LauncherConfig.resolved_tagline() is the
-                # one in the launcher today.
+                # has no msgid to extract. The tagline is the one in the launcher
+                # today, translated in launcher.gd and in
+                # LauncherConfig.resolved_tagline().
                 print(
                     f"note: {path}:{line_of(masked, match.start())}: "
                     f"tr() on a non-literal argument, nothing to extract",
