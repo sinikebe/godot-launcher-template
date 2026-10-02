@@ -23,6 +23,11 @@ const HISTORY_VIEW_HEIGHT := 300.0
 
 ## Space kept above and below an overlay's dialog once its text is long enough
 ## to fill the screen. Past that, the text scrolls inside the dialog.
+##
+## Deliberately not LauncherConfig.edge_margin, which frames the launcher's own
+## screen -- the part the overlay dims. Across that setting's 0 to 200 range the
+## dialog would sit flush against the screen's edges, or keep room for only six
+## lines of text on a screen 720 pixels tall.
 const OVERLAY_MARGIN := 24.0
 
 ## What [method register_translations] accepts inside a folder: gettext catalogs,
@@ -613,7 +618,9 @@ func _show_overlay(title: String, body: String, primary_text: String,
 ##
 ## OverlayScroll is in SCROLL_MODE_MAXIMIZE_FIRST, which grows with its text up
 ## to custom_maximum_size and scrolls only past it, so short text still gets a
-## dialog that fits around it.
+## dialog that fits around it. Its scroll hints fade the text out at an edge
+## with more beyond it. Otherwise the cap, which falls between two lines, would
+## make a cut-off list look finished.
 ##
 ## Runs again whenever the screen changes size: a desktop window resized, or a
 ## phone turning in a game that allows both orientations.

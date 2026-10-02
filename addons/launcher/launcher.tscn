@@ -217,6 +217,7 @@ unique_name_in_owner = true
 layout_mode = 2
 horizontal_scroll_mode = 0
 vertical_scroll_mode = 5
+scroll_hint_mode = 1
 
 [node name="OverlayBody" type="Label" parent="UpdateOverlay/Center/Dialog/Box/OverlayScroll"]
 auto_translate_mode = 2
