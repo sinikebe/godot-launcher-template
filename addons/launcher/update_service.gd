@@ -91,6 +91,88 @@ func _process(_delta: float) -> void:
 
 
 # ---------------------------------------------------------------------------
+# The installed binary's side
+# ---------------------------------------------------------------------------
+#
+# This file ships in content packs; BuildInfo and LauncherConfig never do.
+# BuildInfo mounts the pack, so it is compiled from the binary before any pack
+# exists, and LauncherConfig comes with it, because BuildInfo names the class.
+# Every launch after a content update therefore runs this script against a
+# BuildInfo and a LauncherConfig as old as the installed binary -- as old as the
+# first launcher a game shipped. A member added to either since then is not
+# there, and reading it fails at runtime (#24, #70). A debug build aborts the
+# function; a release build runs on with nil. In check_for_updates() either one
+# left the updater unable ever to run again, and so unable to fetch its own fix.
+#
+# So everything below reads them by name and falls back to what an older binary
+# actually did. ci/check_binary_skew.py fails a change that reads one directly in
+# the ordinary way; its docstring lists the forms it cannot follow.
+
+## The release stream this binary follows. A binary built before branch builds
+## existed has no such member, and follows /releases/latest/: "".
+func _release_branch() -> String:
+	if "release_branch" in BuildInfo:
+		return str(BuildInfo.get("release_branch"))
+	return ""
+
+
+## Why updates cannot run, or "" when they can.
+func _config_error(branch: String) -> String:
+	var config := BuildInfo.config
+	if _accepts(config, "update_config_error", 1):
+		return str(config.call("update_config_error", branch))
+	# Before branch builds, an unset update_repo was the only way to be unusable.
+	if config.update_repo.is_empty():
+		return tr("No update repository configured (set update_repo in the launcher config).")
+	# A branch stamp alongside a config that cannot take one: only a commit made
+	# while branch builds were being written ever shipped like that. Its URLs
+	# would point at the releases players get, which a branch build must never
+	# update itself from.
+	if not branch.is_empty() and not _accepts(config, "manifest_url", 1):
+		return tr("This build follows branch \"%s\", but its launcher config cannot. Install the branch's current build.") % branch
+	return ""
+
+
+## Where this binary polls for its manifest, or "" when it cannot say.
+func _manifest_url(branch: String) -> String:
+	return _config_url("manifest_url", branch)
+
+
+## The release page for this binary's stream, or "" when it cannot say.
+func _releases_url(branch: String) -> String:
+	return _config_url("releases_url", branch)
+
+
+## Every config there has ever been answers for the release stream with no
+## argument; only one built for branch builds takes the branch.
+func _config_url(method: String, branch: String) -> String:
+	var config := BuildInfo.config
+	if branch.is_empty():
+		return str(config.call(method))
+	if _accepts(config, method, 1):
+		return str(config.call(method, branch))
+	return ""
+
+
+## BuildInfo.launcher_source(), or "" from a binary that predates it. That binary
+## also predates the check it feeds, so skipping the check is what it did.
+func _launcher_source() -> String:
+	if BuildInfo.has_method("launcher_source"):
+		return str(BuildInfo.call("launcher_source"))
+	return ""
+
+
+## Whether [param object] has a method [param method] that takes [param argc]
+## arguments.
+static func _accepts(object: Object, method: String, argc: int) -> bool:
+	for info: Dictionary in object.get_method_list():
+		if info.name == method:
+			var total: int = info.args.size()
+			return argc <= total and argc >= total - info.default_args.size()
+	return false
+
+
+# ---------------------------------------------------------------------------
 # Checking
 # ---------------------------------------------------------------------------
 
@@ -102,13 +184,14 @@ func check_for_updates() -> State:
 	# Reports a bad branch stamp as well as a missing update_repo. updates_enabled()
 	# stays keyed on update_repo alone, so a misconfigured branch surfaces as an
 	# error the player can see rather than hiding the update bar entirely.
-	var config_error := BuildInfo.config.update_config_error(BuildInfo.release_branch)
+	var branch := _release_branch()
+	var config_error := _config_error(branch)
 	if not config_error.is_empty():
 		return _finish(State.UNAVAILABLE, config_error)
 
 	# A game that copied the demo's config would poll the launcher template and
 	# try to install the demo over itself. Refuse rather than do that.
-	var source := BuildInfo.launcher_source()
+	var source := _launcher_source()
 	if not source.is_empty() and BuildInfo.config.update_repo == source:
 		return _finish(State.UNAVAILABLE,
 			tr("update_repo still points at the launcher template. Set it to this game's own repository."))
@@ -125,7 +208,7 @@ func check_for_updates() -> State:
 	# value that decided this build's package id and user:// directory, so what it
 	# polls cannot disagree with which app it is.
 	var url := "%s?ts=%d" % [
-		BuildInfo.config.manifest_url(BuildInfo.release_branch), Time.get_unix_time_from_system()]
+		_manifest_url(branch), Time.get_unix_time_from_system()]
 	var response := await _request(url, "")
 	_busy = false
 
@@ -235,7 +318,7 @@ func _apply_content() -> State:
 		"content_version": version,
 		# Which build stream staged it, so a build following another one refuses to
 		# mount it even if the two ever end up sharing a user:// directory.
-		"branch": BuildInfo.release_branch,
+		"branch": _release_branch(),
 		"pack_path": final_path,
 		"size": size,
 		"sha256": str(pending_artifact.get("sha256", "")),
@@ -279,7 +362,7 @@ func _apply_binary() -> State:
 
 	# Nothing safe to automate here: point at the release page.
 	_busy = false
-	OS.shell_open(BuildInfo.config.releases_url(BuildInfo.release_branch))
+	OS.shell_open(_releases_url(_release_branch()))
 	return _finish(State.UNAVAILABLE, tr("Download the new build from the GitHub releases page."))
 
 
@@ -302,7 +385,7 @@ func _hand_off_to_installer() -> State:
 		# The APK sits in private storage, so there is nothing the user could
 		# open by hand. Send them to the release page instead -- a browser
 		# download lands somewhere they can install from.
-		OS.shell_open(BuildInfo.config.releases_url(BuildInfo.release_branch))
+		OS.shell_open(_releases_url(_release_branch()))
 		return _fail(tr("Could not open the installer. Opened the releases page so you can download the APK directly."))
 
 	return _finish(State.INSTALL_HANDOFF, "")
