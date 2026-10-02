@@ -154,7 +154,8 @@ The next build picks them up automatically.
 | `ci/` | Build scripts. Also replaced |
 
 Editing those two is the most common mistake: it works until the next sync
-quietly reverts it. Everything you legitimately need is in the config.
+quietly reverts it. Everything you legitimately need is in the config,
+`launcher_hooks.gd` or `locale/`.
 
 Each of them carries a copy of the launcher's MIT `LICENSE`, which is how the
 terms reach you at all — the sync only ever copies those two directories. Leave

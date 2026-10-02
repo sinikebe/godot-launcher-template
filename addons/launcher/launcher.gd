@@ -127,6 +127,12 @@ func _ready() -> void:
 ## instead -- so a placeholder can be filled after translating -- and nothing
 ## else would ever refill them.
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		# A hooks script that extends Object is neither reference-counted nor in
+		# the tree, so nothing else would ever free it.
+		if is_instance_valid(_hooks) and not (_hooks is RefCounted) and not (_hooks is Node):
+			_hooks.free()
+		return
 	if what != NOTIFICATION_TRANSLATION_CHANGED or not _screen_built:
 		return
 	_apply_identity()
@@ -160,6 +166,12 @@ func _run_opening_hook() -> void:
 	if script == null or not script.can_instantiate():
 		push_warning("[Launcher] %s could not be loaded; carrying on without it." % HOOKS_PATH)
 		return
+	# Godot 4.7 can crash a debug build outright on new() when _init() needs
+	# arguments, rather than reporting it, so it is checked rather than tried.
+	for method: Dictionary in script.get_script_method_list():
+		if method.name == "_init" and method.args.size() > method.default_args.size():
+			push_warning("[Launcher] %s could not be instantiated: its _init() needs arguments; carrying on without it." % HOOKS_PATH)
+			return
 	_hooks = script.new()
 	if _hooks == null:
 		push_warning("[Launcher] %s could not be instantiated; carrying on without it." % HOOKS_PATH)
@@ -179,8 +191,9 @@ func _run_opening_hook() -> void:
 ## from the installed binary before any pack is mounted, so a corrected string
 ## or a new language shipped as a content update never takes effect there. A
 ## catalog already registered that way at the same path is replaced by the copy
-## read here; one left at another path is not, and Godot then picks between the
-## two by registration order.
+## read here. One left at another path is not, and which of the two Godot then
+## uses depends on the order they were registered in and on how closely each
+## matches the locale, so the stale one can win.
 func register_translations(paths: PackedStringArray) -> void:
 	for path in _catalog_files(paths):
 		if _registered_catalogs.has(path):
@@ -363,11 +376,14 @@ func _text_align_for(h_align: int) -> HorizontalAlignment:
 # ---------------------------------------------------------------------------
 
 func _on_play_pressed() -> void:
+	# Asked before emitting: a one-shot connection -- which is what
+	# `await launcher.play_requested` makes -- is dropped during the emission.
+	var answered := not play_requested.get_connections().is_empty()
 	play_requested.emit()
 	if _config.play_scene.is_empty():
 		# A game listening to play_requested has taken Play over; only Play that
 		# nothing answers explains itself.
-		if play_requested.get_connections().is_empty():
+		if not answered:
 			_explain_play()
 		return
 	get_tree().change_scene_to_file(_config.play_scene)

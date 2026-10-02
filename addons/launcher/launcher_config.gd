@@ -76,7 +76,9 @@ var background_stretch: int = 3
 # ---------------------------------------------------------------------------
 @export_group("Game")
 
-## Scene that Play loads. While empty, Play explains itself instead of failing.
+## Scene that Play loads. While empty, Play explains itself instead of failing --
+## unless the game has connected the launcher's play_requested signal, which then
+## takes Play over.
 @export_file("*.tscn") var play_scene: String = ""
 
 # ---------------------------------------------------------------------------

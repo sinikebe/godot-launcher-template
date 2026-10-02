@@ -231,11 +231,17 @@ Things to watch:
   (`"field" in BuildInfo.config`, `has_method()`) instead of reading it outright.
 - **Don't `await` in it.** The launcher builds its screen as soon as the
   function returns.
-- **A broken file costs only itself.** If the file fails to parse, the launcher
-  logs `launcher_hooks.gd could not be loaded; carrying on without it` and runs
-  normally, updates included, so the next content update can repair it. An
-  error while the function runs stops the rest of the function, and nothing
-  else.
+- **A broken file costs what it sets up, and nothing more.** If it fails to
+  parse, the launcher logs `launcher_hooks.gd could not be loaded; carrying on
+  without it` and runs without it: no catalogs registered, no buttons wired,
+  and with `play_scene` empty no Play. Updates keep working, so the next content
+  update can repair it. The CI boot check does not fail on this (#71), so look
+  for that line before you ship. An error while the function runs stops the
+  rest of the function, and nothing else.
+- **Once an app build has shipped the file, keep it.** A content update can
+  replace the file but never remove it. Delete it from the project and devices
+  carry on running the copy their app build shipped. To retire it, ship one
+  that does nothing.
 
 ### Language
 
@@ -280,7 +286,8 @@ call `TranslationServer.set_locale()` from `_launcher_opening()` as well, with
 the language they saved, so the first screen is already in it. The launcher's
 screen also follows a language change while it is showing, such as one made
 in a settings panel drawn over it. An update error already on screen keeps its
-language until the next check, which runs each time the launcher opens.
+language until the next update check, which runs each time the launcher opens
+while `check_on_launch` is on.
 
 Two limits worth knowing before you translate. The bundled theme uses Godot's
 built-in font, which covers Latin, Latin-Extended, Cyrillic, Greek and Hebrew —
