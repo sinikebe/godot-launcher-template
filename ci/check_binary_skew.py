@@ -20,24 +20,39 @@ of them accept, and checks each direct access from pack-side code against that.
 In a game the history starts at its first launcher sync, which is exactly the
 oldest binary it can have shipped.
 
+Only members that some version has and another lacks are reported, so engine
+API (get_tree(), resource_path...) needs no list: no version of these scripts
+defines it, and every binary has it, since the engine version is pinned.
+
 Reaching a newer member by name -- "member" in obj, obj.get(), has_method(),
 obj.call() -- is how pack-side code is meant to use one, with the older
 binary's behaviour as the fallback. This script does not follow those, which is
-the point. Nor does it follow a value through an untyped variable: it knows
-BuildInfo, BuildInfo.config, the LauncherConfig class, and names declared as
-LauncherConfig or assigned from BuildInfo.config.
+the point. It is a guard against the ordinary way of writing a read, not a type
+checker: it follows BuildInfo, BuildInfo.config, the LauncherConfig class,
+names declared as LauncherConfig or assigned from BuildInfo.config, preloads of
+the pinned scripts, and literal subscripts such as BuildInfo["x"]. A value
+passed through an untyped or differently typed variable, get_node(), a cast, a
+helper function's return, or a Callable is not followed.
+
+It needs the full history -- a check against one version proves nothing -- so
+it refuses to run on a shallow clone rather than pass it.
 """
 
 from __future__ import annotations
 
 import pathlib
 import re
+import runpy
 import subprocess
 import sys
 
-sys.dont_write_bytecode = True  # importing make_pot must not leave ci/__pycache__ behind
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from make_pot import line_of, mask  # noqa: E402
+# make_pot.py's tokeniser, run from its source file rather than imported. An
+# import would load a compiled ci/__pycache__/make_pot.*.pyc in its place if one
+# existed -- a binary file a diff does not show -- and this directory is synced
+# into every game.
+_MAKE_POT = runpy.run_path(str(pathlib.Path(__file__).resolve().with_name("make_pot.py")),
+                           run_name="make_pot")
+line_of, mask = _MAKE_POT["line_of"], _MAKE_POT["mask"]
 
 SOURCE_DIR = pathlib.Path("addons/launcher")
 
@@ -53,17 +68,6 @@ PINNED = {
 # same binary-side objects, so it is held to the same rule when it exists.
 GAME_HOOKS = pathlib.Path("launcher_hooks.gd")
 
-# Members every binary has because the engine provides them: Object, Node and
-# Resource API that pack-side code reaches through BuildInfo or the config.
-ENGINE_MEMBERS = {
-    "get", "set", "call", "callv", "has_method", "has_signal", "connect",
-    "disconnect", "is_connected", "emit_signal", "get_script", "get_meta",
-    "set_meta", "has_meta", "get_class", "is_class", "get_method_list",
-    "get_property_list", "get_signal_list", "notification", "get_instance_id",
-    "tr", "tr_n", "name", "get_name", "get_tree", "get_node", "get_parent",
-    "is_inside_tree", "is_node_ready", "resource_path", "resource_name",
-    "duplicate", "changed", "emit_changed",
-}
 
 TOP_MEMBER = re.compile(
     r"^(?:@\w+(?:\([^\n]*?\))?\s+)*(?:static\s+)?(var|const|signal|enum|func)\s+(\w+)", re.M)
@@ -147,15 +151,19 @@ def accesses(masked: str, literals: list[str]) -> list[tuple[str, str, int, int 
     found = []
     # Longest alias first, so "BuildInfo.config.x" is read as the config's x.
     for alias in sorted(aliases, key=len, reverse=True):
-        pattern = re.compile(r"(?<![\w.])" + re.escape(alias) + r"\.(\w+)(\s*\()?")
+        dotted = r"\s*\.\s*".join(re.escape(part) for part in alias.split("."))
+        pattern = re.compile(r"(?<![\w.])" + dotted + r"\s*\.\s*(\w+)(\s*\()?")
         for match in pattern.finditer(masked):
             if alias == "BuildInfo" and match.group(1) == "config" and \
-                    masked.startswith(".", match.end(1)):
+                    masked[match.end(1):].lstrip().startswith("."):
                 continue  # handled as BuildInfo.config.<member>
             argc = None
             if match.group(2):
                 argc = len(split_args(masked, match.end() - 1)[0])
             found.append((aliases[alias], match.group(1), match.start(), argc))
+        subscript = re.compile(r"(?<![\w.])" + dotted + r"\s*\[\s*\x00(\d+)\x00\s*\]")
+        for match in subscript.finditer(masked):
+            found.append((aliases[alias], literals[int(match.group(1))], match.start(), None))
     return found
 
 
@@ -163,8 +171,9 @@ def main() -> int:
     if not SOURCE_DIR.is_dir():
         sys.exit(f"run from the repository root: {SOURCE_DIR} not found")
     if git("rev-parse", "--is-shallow-repository").strip() == "true":
-        print("::warning::shallow clone: only the history fetched is checked; "
-              "check out with fetch-depth: 0 to cover every binary", file=sys.stderr)
+        print("::error::this is a shallow clone, so the older binaries it has to check against "
+              "are missing. Check out with fetch-depth: 0.", file=sys.stderr)
+        return 1
 
     apis = {name: history(path) for name, path in PINNED.items()}
     problems: list[str] = []
@@ -173,10 +182,12 @@ def main() -> int:
         masked, literals = mask(path.read_text(encoding="utf-8"))
         for pinned, member, pos, argc in accesses(masked, literals):
             versions = apis[pinned]
-            if not versions or member in ENGINE_MEMBERS:
+            if not versions:
                 continue
-            checked += 1
             missing = [label for label, api in versions if member not in api.members]
+            if len(missing) == len(versions):
+                continue  # never defined by these scripts: engine API, the same in every binary
+            checked += 1
             bad_arity = []
             if argc is not None:
                 for label, api in versions:

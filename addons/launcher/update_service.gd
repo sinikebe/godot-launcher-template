@@ -105,7 +105,8 @@ func _process(_delta: float) -> void:
 # left the updater unable ever to run again, and so unable to fetch its own fix.
 #
 # So everything below reads them by name and falls back to what an older binary
-# actually did. ci/check_binary_skew.py fails a change that reads one directly.
+# actually did. ci/check_binary_skew.py fails a change that reads one directly in
+# the ordinary way; its docstring lists the forms it cannot follow.
 
 ## The release stream this binary follows. A binary built before branch builds
 ## existed has no such member, and follows /releases/latest/: "".
