@@ -51,6 +51,13 @@ You are running from the Godot editor, or a locally exported build. Those report
 version `0`, so every release looks newer. That is deliberate — it makes the
 update path easy to exercise. Installed CI builds behave correctly.
 
+### A player cannot reach "Update now" or "Download"
+
+Their launcher is older than 2.4.1, and the update's notes are too long for its
+prompt, which pushes the buttons off the bottom of the screen. Updating the
+launcher only helps from the update after the one that delivers it. See
+[Players on a launcher before 2.4.1](UPDATES.md#players-on-a-launcher-before-241).
+
 ### "Allow … to install unknown apps" keeps coming back
 
 Android requires that permission per installing app, and grants it to the

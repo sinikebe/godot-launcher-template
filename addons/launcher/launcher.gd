@@ -21,6 +21,10 @@ const HOOKS_PATH := "res://launcher_hooks.gd"
 ## Height the patch-note history is capped at before it starts scrolling.
 const HISTORY_VIEW_HEIGHT := 300.0
 
+## Space kept above and below an overlay's dialog once its text is long enough
+## to fill the screen. Past that, the text scrolls inside the dialog.
+const OVERLAY_MARGIN := 24.0
+
 ## What [method register_translations] accepts inside a folder: gettext catalogs,
 ## and the .translation files Godot imports from a CSV.
 const CATALOG_EXTENSIONS: PackedStringArray = ["po", "mo", "translation"]
@@ -50,6 +54,9 @@ static var _registered_catalogs: Dictionary = {}
 @onready var _progress: ProgressBar = %UpdateProgress
 
 @onready var _overlay: Control = %UpdateOverlay
+@onready var _overlay_dialog: PanelContainer = %Dialog
+@onready var _overlay_box: VBoxContainer = %Box
+@onready var _overlay_actions: HBoxContainer = %Actions
 @onready var _overlay_title: Label = %OverlayTitle
 @onready var _overlay_scroll: ScrollContainer = %OverlayScroll
 @onready var _overlay_body: Label = %OverlayBody
@@ -65,6 +72,9 @@ var _laying_out := false
 var _overlay_action: Callable = Callable()
 ## Shows the open overlay again from scratch, so a language change can re-say it.
 var _overlay_resay: Callable = Callable()
+## The open overlay's own cap on its text's height, or 0 for none. The screen
+## caps it as well; see _fit_overlay().
+var _overlay_text_cap := 0.0
 ## True while a language change re-says the overlay, which must leave the
 ## player's focus and scroll position where they were.
 var _resaying := false
@@ -99,6 +109,7 @@ func _ready() -> void:
 	_update_button.pressed.connect(_on_update_pressed)
 	_overlay_primary.pressed.connect(_on_overlay_primary)
 	_overlay_secondary.pressed.connect(_hide_overlay)
+	_overlay.resized.connect(_fit_overlay)
 
 	UpdateService.state_changed.connect(_on_update_state_changed)
 	UpdateService.progress_changed.connect(_on_progress_changed)
@@ -564,23 +575,15 @@ func _show_history() -> void:
 ## function calling this one. A language change re-runs it, since the strings
 ## passed here were translated once, on the way in.
 ##
-## [param scroll_height] of 0 lets the dialog size itself to the text; anything
-## larger caps it there and scrolls, which is what the long history needs.
+## The text is capped at the height the screen leaves for it, and at
+## [param scroll_height] too when that is above 0 -- the long history uses it to
+## stay compact. Text under its cap is shown whole; text over it scrolls.
 func _show_overlay(title: String, body: String, primary_text: String,
 		primary_action: Callable, secondary_text: String, resay: Callable,
 		scroll_height: float = 0.0) -> void:
 	_overlay_resay = resay
 	_overlay_title.text = title
 	_overlay_body.text = body
-
-	if scroll_height > 0.0:
-		_overlay_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-		_overlay_scroll.custom_minimum_size.y = scroll_height
-	else:
-		# Disabled vertical scrolling makes the container report its child's full
-		# height, so short dialogs keep hugging their text.
-		_overlay_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_overlay_scroll.custom_minimum_size.y = 0.0
 	# Saying the same overlay again in another language keeps the reader's place
 	# and focus; only a new overlay starts from the top, on its primary button.
 	if not _resaying:
@@ -590,9 +593,36 @@ func _show_overlay(title: String, body: String, primary_text: String,
 	_overlay_action = primary_action
 	_overlay_secondary.text = secondary_text
 	_overlay_secondary.visible = not secondary_text.is_empty()
+	_overlay_text_cap = scroll_height
+	_fit_overlay()
 	_overlay.show()
 	if not _resaying:
 		_overlay_primary.grab_focus()
+
+
+## Caps the overlay's text at the height the screen has left once the rest of
+## the dialog and OVERLAY_MARGIN above and below it are taken out, so the
+## dialog's buttons always stay on screen. Nothing else could reach them: the
+## overlay takes every tap outside the dialog, and a phone has no Enter key.
+##
+## OverlayScroll is in SCROLL_MODE_MAXIMIZE_FIRST, which grows with its text up
+## to custom_maximum_size and scrolls only past it, so short text still gets a
+## dialog that fits around it.
+##
+## Runs again whenever the screen changes size, e.g. a phone rotating.
+func _fit_overlay() -> void:
+	var rest_of_dialog := _overlay_dialog.get_theme_stylebox("panel").get_minimum_size().y \
+		+ _overlay_title.get_combined_minimum_size().y \
+		+ _overlay_actions.get_combined_minimum_size().y \
+		+ 2 * _overlay_box.get_theme_constant("separation")
+	var room := _overlay.size.y - 2.0 * OVERLAY_MARGIN - rest_of_dialog
+	if _overlay_text_cap > 0.0:
+		room = minf(room, _overlay_text_cap)
+	_overlay_scroll.custom_maximum_size.y = maxf(room, 0.0)
+	# Godot 4.7 applies a lowered maximum at once but not a raised one: until
+	# something recalculates the scroll's minimum size, it keeps its old height.
+	# A window made taller would otherwise leave the text in its old, smaller box.
+	_overlay_scroll.update_minimum_size()
 
 
 func _hide_overlay() -> void:

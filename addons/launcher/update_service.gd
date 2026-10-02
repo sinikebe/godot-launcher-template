@@ -668,8 +668,12 @@ func pending_changelog() -> Array:
 	return result
 
 
-## The pending patch notes as display text, capped so the dialog cannot outgrow
-## the screen. Empty when there is nothing to show.
+## The pending patch notes as display text, capped so the prompt stays a summary;
+## the whole history is under "What's new". Empty when there is nothing to show.
+##
+## The cap counts lines of text, not lines drawn: one change can wrap to several.
+## So it cannot keep the dialog on screen, which is the launcher's job; see
+## _fit_overlay() in launcher.gd.
 func pending_notes_text(max_lines: int = 12) -> String:
 	return _format_entries(pending_changelog(), max_lines, false)
 
