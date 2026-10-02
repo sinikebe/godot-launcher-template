@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=9 format=3]
+[gd_resource type="Theme" load_steps=11 format=3]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
 content_margin_left = 22.0
@@ -110,6 +110,15 @@ corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
 
+[sub_resource type="Gradient" id="Gradient_scroll_hint"]
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_scroll_hint"]
+gradient = SubResource("Gradient_scroll_hint")
+width = 8
+height = 40
+fill_to = Vector2(0, 1)
+
 [resource]
 default_font_size = 18
 Button/colors/font_color = Color(0.855, 0.953, 0.933, 1)
@@ -128,3 +137,5 @@ PanelContainer/styles/panel = SubResource("StyleBoxFlat_panel")
 ProgressBar/colors/font_color = Color(0.855, 0.953, 0.933, 1)
 ProgressBar/styles/background = SubResource("StyleBoxFlat_bar_bg")
 ProgressBar/styles/fill = SubResource("StyleBoxFlat_bar_fill")
+ScrollContainer/colors/scroll_hint_vertical_color = Color(0.035, 0.086, 0.078, 1)
+ScrollContainer/icons/scroll_hint_vertical = SubResource("GradientTexture2D_scroll_hint")

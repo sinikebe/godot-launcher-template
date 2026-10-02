@@ -195,10 +195,12 @@ grow_vertical = 2
 mouse_filter = 2
 
 [node name="Dialog" type="PanelContainer" parent="UpdateOverlay/Center"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(440, 0)
 layout_mode = 2
 
 [node name="Box" type="VBoxContainer" parent="UpdateOverlay/Center/Dialog"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 14
 
@@ -214,7 +216,8 @@ text = "Update ready"
 unique_name_in_owner = true
 layout_mode = 2
 horizontal_scroll_mode = 0
-vertical_scroll_mode = 0
+vertical_scroll_mode = 5
+scroll_hint_mode = 1
 
 [node name="OverlayBody" type="Label" parent="UpdateOverlay/Center/Dialog/Box/OverlayScroll"]
 auto_translate_mode = 2
@@ -227,6 +230,7 @@ text = "…"
 autowrap_mode = 3
 
 [node name="Actions" type="HBoxContainer" parent="UpdateOverlay/Center/Dialog/Box"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 10
 alignment = 2

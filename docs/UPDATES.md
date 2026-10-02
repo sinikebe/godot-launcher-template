@@ -125,6 +125,35 @@ maintaining a file.
 If a release has no notes at all, the dialog is skipped entirely and the update
 applies directly — an empty dialog is worse than no dialog.
 
+However long the notes, the dialog's buttons stay on screen: once the notes are
+taller than the screen leaves room for, they scroll inside the dialog.
+
+### Players on a launcher before 2.4.1
+
+Before 2.4.1, the update prompt grew with its notes. On a screen 720 pixels
+tall, which is what any landscape phone gets with the template's project
+settings, notes that wrap to more than about 20 lines start to push the
+prompt's buttons past the bottom edge, and by about 25 they are off it
+entirely. Nothing else on screen answers a tap while the prompt is open, and a
+phone has no Enter key.
+
+The prompt is drawn by the launcher a player already has, so 2.4.1 only helps
+from the update after the one that delivers it. While a new app build is on
+offer, no content update installs either, so that build's prompt comes from
+the old launcher too.
+
+Until your players are on 2.4.1, keep each release's notes short. Nine commit
+subjects of 60-odd characters are the most the old prompt holds whole: each
+wraps to two lines, and a tenth starts to clip its buttons. A player several
+releases behind sees every release they missed in one prompt: up to twelve
+lines of release headings, changes and the blank lines between releases, then
+"…and N more changes.", and any of those lines can wrap. Releasing often and
+squash-merging both help.
+
+A player who is already stuck can close the app (Back does it on Android) and
+open it again: the prompt only appears when they tap the update button, so
+they can still play. Installing the latest build by hand gets them the update.
+
 ### Reading them at any time
 
 **What's new** in the update bar opens the full history, whether or not an
@@ -140,8 +169,8 @@ sources:
   build time, so a fresh install can describe itself before it has ever reached
   the network.
 
-The dialog caps its height and scrolls, so a long history cannot push the
-buttons off-screen.
+The history scrolls sooner than the update prompt does, at 300 pixels, so even
+a long one opens as a compact dialog.
 
 ## Per-platform behaviour
 
