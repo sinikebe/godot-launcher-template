@@ -167,7 +167,9 @@ In `launcher_config.tres`, set **`play_scene`** to your first scene. Until then
 Play explains itself rather than failing silently.
 
 For more control, connect the launcher's `play_requested` signal and do
-whatever you like instead.
+whatever you like instead. Connect it from your config's `_launcher_opening()`
+([Your own code on the launcher's screen](../README.md#your-own-code-on-the-launchers-screen)),
+which is also where your translations and a player's chosen language go.
 
 ## Staying up to date
 

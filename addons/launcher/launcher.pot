@@ -12,9 +12,13 @@
 # Put your .po files OUTSIDE addons/launcher/ and OUTSIDE ci/ --
 # res://locale/<lang>.po is the usual home. Both of those directories are
 # replaced wholesale by ci/sync_launcher.sh, so a .po left inside either one is
-# deleted on the next launcher sync. Register them in project.godot under
-# internationalization/locale/translations, which is a game-owned file and
-# survives the sync.
+# deleted on the next launcher sync.
+#
+# Register them with launcher.register_translations(["res://locale/"]) in your
+# LauncherConfig's _launcher_opening() -- see the README. NOT in project.godot
+# (internationalization/locale/translations): Godot reads that list from the
+# installed app, before any content pack is mounted, so a catalog listed there
+# can never be corrected or added to by a content update.
 #
 msgid ""
 msgstr ""
@@ -29,15 +33,15 @@ msgstr ""
 msgid "     <- installed"
 msgstr ""
 
-#: addons/launcher/launcher.gd:430
+#: addons/launcher/launcher.gd:553
 msgid "%.1f KB"
 msgstr ""
 
-#: addons/launcher/launcher.gd:431
+#: addons/launcher/launcher.gd:554
 msgid "%.1f MB"
 msgstr ""
 
-#: addons/launcher/launcher.gd:428
+#: addons/launcher/launcher.gd:551
 msgid "%d B"
 msgstr ""
 
@@ -45,7 +49,7 @@ msgstr ""
 msgid "Allow %s to install unknown apps, then tap Install."
 msgstr ""
 
-#: addons/launcher/launcher.gd:311
+#: addons/launcher/launcher.gd:418
 msgid "Check for updates"
 msgstr ""
 
@@ -53,20 +57,20 @@ msgstr ""
 msgid "Checking for updates…"
 msgstr ""
 
-#: addons/launcher/launcher.gd:307
+#: addons/launcher/launcher.gd:414
 msgid "Checking…"
 msgstr ""
 
-#: addons/launcher/launcher.gd:380
-#: addons/launcher/launcher.gd:382
+#: addons/launcher/launcher.gd:497
+#: addons/launcher/launcher.gd:499
 msgid "Close"
 msgstr ""
 
-#: addons/launcher/launcher.gd:365
+#: addons/launcher/launcher.gd:482
 msgid "Close the game and open it again to finish the update."
 msgstr ""
 
-#: addons/launcher/launcher.gd:267
+#: addons/launcher/launcher.gd:376
 msgid "Confirm the update in the system installer. The game will reopen on the new version once the install finishes."
 msgstr ""
 
@@ -74,7 +78,7 @@ msgstr ""
 msgid "Content update available (v%s)."
 msgstr ""
 
-#: addons/launcher/launcher.gd:337
+#: addons/launcher/launcher.gd:449
 msgid "Content update · %s"
 msgstr ""
 
@@ -102,7 +106,7 @@ msgstr ""
 msgid "Could not write the download to storage. Is the device full?"
 msgstr ""
 
-#: addons/launcher/launcher.gd:342
+#: addons/launcher/launcher.gd:454
 msgid "Download"
 msgstr ""
 
@@ -110,7 +114,7 @@ msgstr ""
 msgid "Download the new build from the GitHub releases page."
 msgstr ""
 
-#: addons/launcher/launcher.gd:301
+#: addons/launcher/launcher.gd:408
 msgid "Download update"
 msgstr ""
 
@@ -118,11 +122,11 @@ msgstr ""
 msgid "Downloading…"
 msgstr ""
 
-#: addons/launcher/launcher.gd:324
+#: addons/launcher/launcher.gd:431
 msgid "Downloading… %s"
 msgstr ""
 
-#: addons/launcher/launcher.gd:318
+#: addons/launcher/launcher.gd:425
 #. NOTE: more than one placeholder. To reorder them, use
 #. indexed forms (%1$s, %2$d, …). Swapping a bare %s and %d
 #. is a runtime error, not a typo.
@@ -133,20 +137,20 @@ msgstr ""
 msgid "Handed over to the installer."
 msgstr ""
 
-#: addons/launcher/launcher.gd:303
+#: addons/launcher/launcher.gd:410
 msgid "Install"
 msgstr ""
 
-#: addons/launcher/launcher.gd:266
+#: addons/launcher/launcher.gd:375
 msgid "Installing"
 msgstr ""
 
-#: addons/launcher/launcher.gd:344
-#: addons/launcher/launcher.gd:357
+#: addons/launcher/launcher.gd:456
+#: addons/launcher/launcher.gd:470
 msgid "Later"
 msgstr ""
 
-#: addons/launcher/launcher.gd:337
+#: addons/launcher/launcher.gd:449
 msgid "New app build · %s"
 msgstr ""
 
@@ -162,7 +166,7 @@ msgstr ""
 msgid "No release has been published yet."
 msgstr ""
 
-#: addons/launcher/launcher_config.gd:135
+#: addons/launcher/launcher_config.gd:157
 msgid "No update repository configured (set update_repo in the launcher config)."
 msgstr ""
 
@@ -170,34 +174,34 @@ msgstr ""
 msgid "Not checked yet."
 msgstr ""
 
-#: addons/launcher/launcher.gd:229
+#: addons/launcher/launcher.gd:334
 msgid "Not wired up yet"
 msgstr ""
 
-#: addons/launcher/launcher.gd:379
+#: addons/launcher/launcher.gd:496
 msgid "Nothing recorded yet. Notes arrive with the first successful update check — tap \"Check for updates\" once you're online."
 msgstr ""
 
-#: addons/launcher/launcher.gd:231
-#: addons/launcher/launcher.gd:268
-#: addons/launcher/launcher.gd:366
+#: addons/launcher/launcher.gd:336
+#: addons/launcher/launcher.gd:377
+#: addons/launcher/launcher.gd:483
 msgid "OK"
 msgstr ""
 
-#: addons/launcher/launcher.gd:378
-#: addons/launcher/launcher.gd:382
+#: addons/launcher/launcher.gd:495
+#: addons/launcher/launcher.gd:499
 msgid "Patch notes"
 msgstr ""
 
-#: addons/launcher/launcher.gd:305
+#: addons/launcher/launcher.gd:412
 msgid "Restart"
 msgstr ""
 
-#: addons/launcher/launcher.gd:364
+#: addons/launcher/launcher.gd:481
 msgid "Restart needed"
 msgstr ""
 
-#: addons/launcher/launcher.gd:357
+#: addons/launcher/launcher.gd:469
 msgid "Restart now"
 msgstr ""
 
@@ -205,7 +209,7 @@ msgstr ""
 msgid "Running from the editor — the new build was saved to %s."
 msgstr ""
 
-#: addons/launcher/launcher.gd:356
+#: addons/launcher/launcher.gd:468
 msgid "Running from the editor: stop and play the project again."
 msgstr ""
 
@@ -241,7 +245,7 @@ msgstr ""
 msgid "The server answered with HTTP %d."
 msgstr ""
 
-#: addons/launcher/launcher.gd:352
+#: addons/launcher/launcher.gd:464
 msgid "The update is downloaded. The game needs to restart to finish applying it."
 msgstr ""
 
@@ -253,11 +257,11 @@ msgstr ""
 msgid "This build is too old to understand the update feed. Please reinstall from GitHub."
 msgstr ""
 
-#: addons/launcher/launcher_config.gd:137
+#: addons/launcher/launcher_config.gd:159
 msgid "This build was stamped for branch \"%s\", which is not a usable branch name: letters, digits, dot, underscore and hyphen only, starting with a letter or digit."
 msgstr ""
 
-#: addons/launcher/launcher.gd:230
+#: addons/launcher/launcher.gd:335
 msgid "This is where the game starts. Set play_scene in the launcher config, or connect the launcher's play_requested signal to take over."
 msgstr ""
 
@@ -265,15 +269,15 @@ msgstr ""
 msgid "Up to date."
 msgstr ""
 
-#: addons/launcher/launcher.gd:299
+#: addons/launcher/launcher.gd:406
 msgid "Update app"
 msgstr ""
 
-#: addons/launcher/launcher.gd:342
+#: addons/launcher/launcher.gd:454
 msgid "Update now"
 msgstr ""
 
-#: addons/launcher/launcher.gd:357
+#: addons/launcher/launcher.gd:469
 msgid "Update ready"
 msgstr ""
 
@@ -292,15 +296,15 @@ msgstr ""
 msgid "Version %s needs a new app build, but none is published for %s yet."
 msgstr ""
 
-#: addons/launcher/launcher.gd:295
+#: addons/launcher/launcher.gd:402
 msgid "What's new"
 msgstr ""
 
-#: addons/launcher/launcher.gd:340
+#: addons/launcher/launcher.gd:452
 msgid "What's new in v%s"
 msgstr ""
 
-#: addons/launcher/launcher.gd:309
+#: addons/launcher/launcher.gd:416
 msgid "Working…"
 msgstr ""
 

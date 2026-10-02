@@ -16,6 +16,15 @@ signal play_requested()
 ## Height the patch-note history is capped at before it starts scrolling.
 const HISTORY_VIEW_HEIGHT := 300.0
 
+## What [method register_translations] accepts inside a folder: gettext catalogs,
+## and the .translation files Godot imports from a CSV.
+const CATALOG_EXTENSIONS: PackedStringArray = ["po", "mo", "translation"]
+
+## Catalogs [method register_translations] has already read in this process. A
+## content pack cannot change until the next launch, so reading one again each
+## time the launcher reopens would only repeat work.
+static var _registered_catalogs: Dictionary = {}
+
 @onready var _bg_color: ColorRect = %BackgroundColor
 @onready var _bg_texture: TextureRect = %BackgroundTexture
 @onready var _bg_shader: ColorRect = %BackgroundShader
@@ -49,10 +58,15 @@ var _first_button: Button = null
 var _laying_out := false
 ## What the overlay's primary button should do when pressed.
 var _overlay_action: Callable = Callable()
+## Shows the open overlay again from scratch, so a language change can re-say it.
+var _overlay_resay: Callable = Callable()
 
 
 func _ready() -> void:
 	_config = BuildInfo.config
+	# First, so whatever the game sets up -- its catalogs, a language the player
+	# chose -- is already in force when the screen below is built.
+	_run_opening_hook()
 
 	if _config.theme_override != null:
 		theme = _config.theme_override
@@ -92,15 +106,100 @@ func _ready() -> void:
 		await UpdateService.check_for_updates()
 
 
+## Follows a language change made while the launcher is showing. The menu and
+## the title translate themselves; the nodes refilled here are filled with tr()
+## instead -- so a placeholder can be filled after translating -- and nothing
+## else would ever refill them.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_TRANSLATION_CHANGED or not is_node_ready():
+		return
+	_apply_identity()
+	_refresh_update_ui()
+	if _overlay.visible and _overlay_resay.is_valid():
+		_overlay_resay.call()
+
+
+# ---------------------------------------------------------------------------
+# The game's own code, and its languages
+# ---------------------------------------------------------------------------
+
+## Lets the game's own LauncherConfig subclass run before anything is built.
+##
+## Called by name rather than as _config._launcher_opening(). LauncherConfig
+## runs at the version the installed binary was built with, never the content
+## pack's: BuildInfo compiles against it before the pack is mounted (#24, #70).
+## On a binary older than this launcher the base class has no such method, and a
+## direct call would be a runtime error that aborts _ready() and leaves no menu.
+## A game's subclass ships in the pack, so its override is there either way.
+func _run_opening_hook() -> void:
+	if _config.has_method("_launcher_opening"):
+		_config.call("_launcher_opening", self)
+
+
+## Registers a game's translation catalogs -- .po, .mo or imported .translation
+## files, or folders holding them -- as res:// has them now, a mounted content
+## pack included. Call it from your LauncherConfig's _launcher_opening().
+##
+## Project Settings → Localization cannot do this. The engine reads that list
+## from the installed binary before any pack is mounted, so a corrected string
+## or a new language shipped as a content update never takes effect there. A
+## catalog already registered that way is replaced by the copy read here.
+func register_translations(paths: PackedStringArray) -> void:
+	for path in _catalog_files(paths):
+		if _registered_catalogs.has(path):
+			continue
+		# CACHE_MODE_IGNORE because a catalog the engine registered at startup is
+		# cached under this same path, and a plain load() hands back that copy --
+		# the binary's -- instead of reading the pack's.
+		var catalog := ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE) as Translation
+		if catalog == null:
+			push_warning("[Launcher] %s is not a translation catalog; skipped." % path)
+			continue
+		for registered in TranslationServer.get_translations():
+			if registered.resource_path == path:
+				TranslationServer.remove_translation(registered)
+		TranslationServer.add_translation(catalog)
+		_registered_catalogs[path] = true
+
+
+## [param paths] with each folder replaced by the catalogs directly inside it.
+static func _catalog_files(paths: PackedStringArray) -> PackedStringArray:
+	var files := PackedStringArray()
+	for path in paths:
+		if not DirAccess.dir_exists_absolute(path):
+			files.append(path)
+			continue
+		# ResourceLoader rather than DirAccess, which in an exported game lists
+		# the .remap and .import stand-ins instead of the files behind them.
+		var entries := ResourceLoader.list_directory(path)
+		entries.sort()
+		for entry in entries:
+			if entry.get_extension().to_lower() in CATALOG_EXTENSIONS:
+				files.append(path.path_join(entry))
+	return files
+
+
 # ---------------------------------------------------------------------------
 # Appearance
 # ---------------------------------------------------------------------------
 
 func _apply_identity() -> void:
 	_title.text = _config.game_title
-	var tagline := _config.resolved_tagline(BuildInfo.version_name, BuildInfo.content_version)
+	var tagline := _resolved_tagline()
 	_tagline.text = tagline
 	_tagline.visible = not tagline.is_empty()
+
+
+## The tagline translated as written, then its placeholders filled -- the same
+## result as LauncherConfig.resolved_tagline() on a current binary. Done here
+## because that method runs at the installed binary's version, and one built
+## before launcher 2.3.0 fills the placeholders without translating at all.
+func _resolved_tagline() -> String:
+	if _config.tagline.is_empty():
+		return ""
+	return tr(_config.tagline) \
+		.replace("{build}", str(BuildInfo.content_version)) \
+		.replace("{version}", BuildInfo.version_name)
 
 
 func _apply_background() -> void:
@@ -225,12 +324,16 @@ func _text_align_for(h_align: int) -> HorizontalAlignment:
 func _on_play_pressed() -> void:
 	play_requested.emit()
 	if _config.play_scene.is_empty():
-		_show_overlay(
-			tr("Not wired up yet"),
-			tr("This is where the game starts. Set play_scene in the launcher config, or connect the launcher's play_requested signal to take over."),
-			tr("OK"), Callable(self, "_hide_overlay"), "")
+		_explain_play()
 		return
 	get_tree().change_scene_to_file(_config.play_scene)
+
+
+func _explain_play() -> void:
+	_show_overlay(
+		tr("Not wired up yet"),
+		tr("This is where the game starts. Set play_scene in the launcher config, or connect the launcher's play_requested signal to take over."),
+		tr("OK"), Callable(self, "_hide_overlay"), "", _explain_play)
 
 
 func _on_quit_pressed() -> void:
@@ -262,12 +365,16 @@ func _on_update_state_changed(_new_state: int) -> void:
 		UpdateService.State.RESTART_REQUIRED:
 			_prompt_restart()
 		UpdateService.State.INSTALL_HANDOFF:
-			_show_overlay(
-				tr("Installing"),
-				tr("Confirm the update in the system installer. The game will reopen on the new version once the install finishes."),
-				tr("OK"), Callable(self, "_hide_overlay"), "")
+			_explain_install_handoff()
 		_:
 			pass
+
+
+func _explain_install_handoff() -> void:
+	_show_overlay(
+		tr("Installing"),
+		tr("Confirm the update in the system installer. The game will reopen on the new version once the install finishes."),
+		tr("OK"), Callable(self, "_hide_overlay"), "", _explain_install_handoff)
 
 
 func _refresh_update_ui() -> void:
@@ -326,12 +433,17 @@ func _on_progress_changed(downloaded: int, total: int) -> void:
 
 ## Shows what the update actually contains before spending a download on it.
 func _prompt_update() -> void:
-	var notes := UpdateService.pending_notes_text()
-	if notes.is_empty():
+	if UpdateService.pending_notes_text().is_empty():
 		# Nothing worth reading; don't make anyone dismiss an empty dialog.
 		await UpdateService.apply_pending_update()
 		return
+	_say_update_prompt()
 
+
+## Apart from _prompt_update() so that saying it again in another language can
+## never take the branch above, which starts the download.
+func _say_update_prompt() -> void:
+	var notes := UpdateService.pending_notes_text()
 	var is_binary := UpdateService.state == UpdateService.State.BINARY_READY
 	var size := _format_bytes(int(UpdateService.pending_artifact.get("size", 0)))
 	var summary := (tr("New app build · %s") if is_binary else tr("Content update · %s")) % size
@@ -341,7 +453,7 @@ func _prompt_update() -> void:
 		"%s\n\n%s" % [summary, notes],
 		tr("Update now") if is_binary else tr("Download"),
 		Callable(self, "_do_apply"),
-		tr("Later"))
+		tr("Later"), _say_update_prompt)
 
 
 func _do_apply() -> void:
@@ -354,16 +466,21 @@ func _prompt_restart() -> void:
 		# The separator stays out of the msgid: a translator should not have to
 		# carry leading newlines through their file to keep the layout.
 		body += "\n\n" + tr("Running from the editor: stop and play the project again.")
-	_show_overlay(tr("Update ready"), body, tr("Restart now"), Callable(self, "_do_restart"), tr("Later"))
+	_show_overlay(tr("Update ready"), body, tr("Restart now"), Callable(self, "_do_restart"),
+		tr("Later"), _prompt_restart)
 
 
 func _do_restart() -> void:
 	if UpdateService.restart_app():
 		return
+	_explain_manual_restart()
+
+
+func _explain_manual_restart() -> void:
 	_show_overlay(
 		tr("Restart needed"),
 		tr("Close the game and open it again to finish the update."),
-		tr("OK"), Callable(self, "_hide_overlay"), "")
+		tr("OK"), Callable(self, "_hide_overlay"), "", _explain_manual_restart)
 
 
 # ---------------------------------------------------------------------------
@@ -377,17 +494,22 @@ func _show_history() -> void:
 		_show_overlay(
 			tr("Patch notes"),
 			tr("Nothing recorded yet. Notes arrive with the first successful update check — tap \"Check for updates\" once you're online."),
-			tr("Close"), Callable(self, "_hide_overlay"), "")
+			tr("Close"), Callable(self, "_hide_overlay"), "", _show_history)
 		return
 	_show_overlay(tr("Patch notes"), history, tr("Close"),
-		Callable(self, "_hide_overlay"), "", HISTORY_VIEW_HEIGHT)
+		Callable(self, "_hide_overlay"), "", _show_history, HISTORY_VIEW_HEIGHT)
 
 
+## [param resay] shows this same overlay again from scratch -- normally the
+## function calling this one. A language change re-runs it, since the strings
+## passed here were translated once, on the way in.
+##
 ## [param scroll_height] of 0 lets the dialog size itself to the text; anything
 ## larger caps it there and scrolls, which is what the long history needs.
 func _show_overlay(title: String, body: String, primary_text: String,
-		primary_action: Callable, secondary_text: String,
+		primary_action: Callable, secondary_text: String, resay: Callable,
 		scroll_height: float = 0.0) -> void:
+	_overlay_resay = resay
 	_overlay_title.text = title
 	_overlay_body.text = body
 
@@ -412,6 +534,7 @@ func _show_overlay(title: String, body: String, primary_text: String,
 func _hide_overlay() -> void:
 	_overlay.hide()
 	_overlay_action = Callable()
+	_overlay_resay = Callable()
 	if _first_button != null:
 		_first_button.grab_focus()
 
