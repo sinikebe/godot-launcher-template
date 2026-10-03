@@ -76,6 +76,21 @@ workflow so the manifest and the artifacts are rebuilt together.
 
 ## Builds
 
+### An export fails with "Invalid export preset name"
+
+The workflows export by preset name. They need one preset called exactly
+`Android` and one called exactly `Windows Desktop`. The error lists the
+presets your `export_presets.cfg` does have, so rename those, or add the
+missing one. A renamed preset of your own also needs the settings listed under
+*Export presets* in the README's
+[existing-game section](../README.md#add-it-to-an-existing-game). Without them
+the build still succeeds, but the APK cannot update itself and the `.exe` is
+published without its game data.
+
+If it says instead that the project "doesn't have an `export_presets.cfg` file
+at its root", the file never reached the repository. Commit it, and check that
+`.gitignore` does not exclude it.
+
 ### The Release workflow fails on the Android export
 
 Almost always the Android SDK step. The supplied workflow installs it; if you
@@ -84,6 +99,17 @@ the step that writes `~/.config/godot/editor_settings-4.7.tres`.
 
 Godot reads the SDK path only from its editor settings — there is no environment
 variable fallback — and refuses to export for Android without it.
+
+If the log instead says `ETC2/ASTC texture compression is required for Android
+export`, the project is missing this from `project.godot`:
+
+```ini
+[rendering]
+textures/vram_compression/import_etc2_astc=true
+```
+
+A game made from the template has it. A game that added the launcher by hand
+gets it from the README's existing-game steps.
 
 ### The build works but the APK is unsigned
 
@@ -132,10 +158,11 @@ opened, under two headings: *changed upstream* (you have the file, it differs)
 and *new upstream, not present here* (the template added or split a workflow
 and you do not have it at all).
 
-**Fix:** copy them across by hand.
+**Fix:** copy them across by hand, then put back any edit of your own, such as
+a branch you added to `release.yml`.
 
 ```bash
-git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
+rm -rf /tmp/lt && git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
 cp /tmp/lt/.github/workflows/*.yml .github/workflows/
 ```
 

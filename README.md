@@ -84,18 +84,61 @@ changing the key afterwards forces everyone to uninstall first.
 
 ## Add it to an existing game
 
+The copy below overwrites files of yours with the same names: workflows such
+as `ci.yml`, and `version.json`, `build_version.gd` and `launcher_config.tres`
+at the root. Every sync also replaces `ci/` and `addons/launcher/` wholesale.
+Move anything of your own out of those first.
+
 ```bash
 cd your-game
-git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
-cp -R /tmp/lt/addons/launcher addons/launcher
-cp -R /tmp/lt/ci ci
-cp /tmp/lt/build_version.gd /tmp/lt/version.json /tmp/lt/launcher_config.tres .
+rm -rf /tmp/lt && git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
+mkdir -p addons .github/workflows
+cp -R /tmp/lt/addons/launcher addons/
+cp -R /tmp/lt/ci .
+cp /tmp/lt/build_version.gd /tmp/lt/build_version.gd.uid /tmp/lt/version.json /tmp/lt/launcher_config.tres .
 cp -R /tmp/lt/.github/workflows/. .github/workflows/
-cp /tmp/lt/template/export_presets.cfg .   # merge with yours if you have one
+cat >> .gitignore <<'EOF'
+
+# Build output, Godot's import cache, and Android signing material, which must
+# never be committed.
+/build/
+.godot/
+*.keystore
+*.jks
+*.p12
+*.idsig
+# The release exports from the committed presets.
+!/export_presets.cfg
+EOF
+printf '\n# The launcher scripts must stay LF, or bash cannot run them.\nci/** text eol=lf\n' >> .gitattributes
 ```
 
-Then in `project.godot`, register the autoloads **in this order** and point at
-your config:
+**Export presets.** The workflows export by preset name. Your committed
+`export_presets.cfg` needs one preset called exactly `Android` and one called
+exactly `Windows Desktop`. A game with no presets yet can take the template's:
+
+```bash
+cp /tmp/lt/template/export_presets.cfg .
+```
+
+If yours has presets already, keep the file and add or rename those two, but
+give them the settings the pipeline relies on, as the template's file does.
+Godot's defaults for a new preset leave them off, and CI stays green without
+them:
+
+- `Android`: `permissions/internet=true`, and
+  `android.permission.REQUEST_INSTALL_PACKAGES` in
+  `permissions/custom_permissions`. Without the first the app cannot check
+  for updates, and without the second it cannot install one.
+- `Windows Desktop`: `binary_format/embed_pck=true`. The release publishes
+  the `.exe` alone, so a build that keeps its data in a separate `.pck` ships
+  without it.
+
+Copying the template's file over yours would replace your own settings.
+
+Then add these to `project.godot`, merging them into sections of the same name
+if you have them. The two autoloads go at the top of `[autoload]`, above any
+of your own, **in this order**:
 
 ```ini
 [autoload]
@@ -104,11 +147,50 @@ UpdateService="*res://addons/launcher/update_service.gd"
 
 [launcher]
 config_path="res://launcher_config.tres"
+
+[rendering]
+textures/vram_compression/import_etc2_astc=true
 ```
 
 `BuildInfo` must come first — it mounts content packs before anything loads a
-scene out of `res://`. Set the main scene to
-`res://addons/launcher/launcher.tscn`, then follow steps 2 and 3 above.
+scene out of `res://`. The last line turns on the texture format Android
+needs; without it, the release's Android export fails. Set the main scene to
+`res://addons/launcher/launcher.tscn`.
+
+Last, give it your game's identity. `ci/new_game.sh` does this only for a
+repository made from the template, and it does nothing here, so edit the
+copies by hand before your first release:
+
+- **`launcher_config.tres`**: set `update_repo` to your game's own
+  `owner/name`. Left as the template's, your game checks the template's
+  releases for updates, and can be offered the demo's content pack as one.
+  Set `play_scene` to the scene that used to be your main scene, or Play has
+  nothing to start. Set `game_title` and `tagline`, and clear `extra_buttons`
+  unless you want the demo's Settings button.
+- **`version.json`**: set `game_name`. The APK, the `.exe` and the release are
+  all named from it.
+- **`export_presets.cfg`**, if it came from the template: set
+  `package/unique_name` to your own Android package id, and
+  `package/name`, `application/product_name` and
+  `application/file_description` to your game's name. Two apps with the same
+  package id cannot both be installed on one device.
+
+Then commit, push, and enable *Settings → Actions → General → Allow GitHub
+Actions to create and approve pull requests*.
+
+Releases come from pushes to the branches listed at the top of
+`.github/workflows/release.yml`. A push to your default branch publishes a
+release. A push to any other branch listed there (`dev`, as shipped) publishes
+a separate [prerelease build](docs/UPDATES.md#trying-a-change-on-a-device-before-it-ships).
+Add your default branch to that list if it is not `main`, and take `dev` out
+if your game uses that branch for something else. After either edit, the daily
+sync reports `release.yml` as changed upstream on every run: the difference it
+sees is your own. Copy the template's version across only when it really has
+changed, then put your edit back.
+
+[Set up Android
+signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
+before other people install it.
 
 ## Making it yours
 
@@ -332,7 +414,10 @@ A token scoped to `contents` is not allowed to write `.github/workflows/`, so th
 starter workflows are **not** synced. When they change upstream -- or when the
 template adds one you do not have -- the sync says so in the run summary of every
 sync run, and in the pull request body when one is opened. You copy them across
-by hand.
+by hand. The sync cannot tell an edit of your own from a change upstream. A
+branch you added to `release.yml` therefore gets that file reported on every
+run, and copying it across drops your branch, so put the edit back after
+copying.
 
 > A pull request opened with `GITHUB_TOKEN` does not trigger other workflows, so
 > the sync job runs the import-and-boot check itself before opening the PR. If
