@@ -87,12 +87,38 @@ changing the key afterwards forces everyone to uninstall first.
 ```bash
 cd your-game
 git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
-cp -R /tmp/lt/addons/launcher addons/launcher
-cp -R /tmp/lt/ci ci
+mkdir -p addons .github/workflows
+cp -R /tmp/lt/addons/launcher addons/
+cp -R /tmp/lt/ci .
 cp /tmp/lt/build_version.gd /tmp/lt/version.json /tmp/lt/launcher_config.tres .
 cp -R /tmp/lt/.github/workflows/. .github/workflows/
-cp /tmp/lt/template/export_presets.cfg .   # merge with yours if you have one
+cat >> .gitignore <<'EOF'
+
+# Build output, Godot's import cache, and Android signing material, which must
+# never be committed.
+/build/
+.godot/
+*.keystore
+*.jks
+*.p12
+*.idsig
+EOF
 ```
+
+The copy overwrites any workflow of yours with the same name, and every sync
+replaces `ci/` and `addons/launcher/` wholesale, so move any files of your own
+out of those first.
+
+**Export presets.** The workflows export by preset name. Your committed
+`export_presets.cfg` needs one preset called exactly `Android` and one called
+exactly `Windows Desktop`. A game with no presets yet can take the template's:
+
+```bash
+cp /tmp/lt/template/export_presets.cfg .
+```
+
+If yours has presets already, keep the file, and add or rename those two
+instead. Copying the template's over it replaces your settings.
 
 Then in `project.godot`, register the autoloads **in this order** and point at
 your config:
@@ -108,7 +134,27 @@ config_path="res://launcher_config.tres"
 
 `BuildInfo` must come first — it mounts content packs before anything loads a
 scene out of `res://`. Set the main scene to
-`res://addons/launcher/launcher.tscn`, then follow steps 2 and 3 above.
+`res://addons/launcher/launcher.tscn`.
+
+Last, give it your game's identity. `ci/new_game.sh` does this only for a
+repository made from the template, and it does nothing here, so edit the
+copies by hand before your first release:
+
+- **`launcher_config.tres`**: set `update_repo` to your game's own
+  `owner/name`. Left as the template's, your game checks the template's
+  releases for updates, and can be offered the demo's content pack as one.
+  Set `game_title` and `tagline` while you are there.
+- **`version.json`**: set `game_name`. The APK, the `.exe` and the release are
+  all named from it.
+- **`export_presets.cfg`**, if it came from the template: set
+  `package/unique_name` to your own Android package id, and
+  `package/name` and `application/product_name` to your game's name. Two
+  apps with the same package id cannot both be installed on one device.
+
+Then commit, push, and enable *Settings → Actions → General → Allow GitHub
+Actions to create and approve pull requests*. [Set up Android
+signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
+before other people install it.
 
 ## Making it yours
 

@@ -76,6 +76,17 @@ workflow so the manifest and the artifacts are rebuilt together.
 
 ## Builds
 
+### An export fails with "Invalid export preset name"
+
+The workflows export by preset name. They need one preset called exactly
+`Android` and one called exactly `Windows Desktop`. The error lists the
+presets your `export_presets.cfg` does have, so rename those, or add the
+missing one.
+
+If it says instead that the project "doesn't have an `export_presets.cfg` file
+at its root", the file never reached the repository. Commit it, and check that
+`.gitignore` does not exclude it.
+
 ### The Release workflow fails on the Android export
 
 Almost always the Android SDK step. The supplied workflow installs it; if you
