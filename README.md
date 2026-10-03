@@ -84,6 +84,11 @@ changing the key afterwards forces everyone to uninstall first.
 
 ## Add it to an existing game
 
+The copy below overwrites files of yours with the same names: workflows such
+as `ci.yml`, and `version.json`, `build_version.gd` and `launcher_config.tres`
+at the root. Every sync also replaces `ci/` and `addons/launcher/` wholesale.
+Move anything of your own out of those first.
+
 ```bash
 cd your-game
 rm -rf /tmp/lt && git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
@@ -102,12 +107,11 @@ cat >> .gitignore <<'EOF'
 *.jks
 *.p12
 *.idsig
+# The release exports from the committed presets.
+!/export_presets.cfg
 EOF
+printf '\n# The launcher scripts must stay LF, or bash cannot run them.\nci/** text eol=lf\n' >> .gitattributes
 ```
-
-The copy overwrites any workflow of yours with the same name, and every sync
-replaces `ci/` and `addons/launcher/` wholesale, so move any files of your own
-out of those first.
 
 **Export presets.** The workflows export by preset name. Your committed
 `export_presets.cfg` needs one preset called exactly `Android` and one called
@@ -132,8 +136,9 @@ them:
 
 Copying the template's file over yours would replace your own settings.
 
-Then in `project.godot`, register the autoloads **in this order** and point at
-your config:
+Then add these to `project.godot`, merging them into sections of the same name
+if you have them. The two autoloads go at the top of `[autoload]`, above any
+of your own, **in this order**:
 
 ```ini
 [autoload]
@@ -172,10 +177,10 @@ copies by hand before your first release:
 
 Then commit, push, and enable *Settings → Actions → General → Allow GitHub
 Actions to create and approve pull requests*. Releases are built from pushes
-to `main`; if your default branch has another name, rename it to `main` on
-GitHub. Editing the workflow instead would be undone the next time you copy
-the template's workflows across. [Set up Android
-signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
+to the branches listed at the top of `.github/workflows/release.yml`, `main`
+and `dev`. If your default branch has another name, add it there, and keep
+that edit whenever you copy the template's workflows across again. [Set up
+Android signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
 before other people install it.
 
 ## Making it yours

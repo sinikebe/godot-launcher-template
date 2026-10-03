@@ -100,6 +100,17 @@ the step that writes `~/.config/godot/editor_settings-4.7.tres`.
 Godot reads the SDK path only from its editor settings — there is no environment
 variable fallback — and refuses to export for Android without it.
 
+If the log instead says `ETC2/ASTC texture compression is required for Android
+export`, the project is missing this from `project.godot`:
+
+```ini
+[rendering]
+textures/vram_compression/import_etc2_astc=true
+```
+
+A game made from the template has it. A game that added the launcher by hand
+gets it from the README's existing-game steps.
+
 ### The build works but the APK is unsigned
 
 No keystore was available and `keytool` failed. Check the job summary: it says
@@ -147,10 +158,11 @@ opened, under two headings: *changed upstream* (you have the file, it differs)
 and *new upstream, not present here* (the template added or split a workflow
 and you do not have it at all).
 
-**Fix:** copy them across by hand.
+**Fix:** copy them across by hand, then put back any edit of your own, such as
+a branch you added to `release.yml`.
 
 ```bash
-git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
+rm -rf /tmp/lt && git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
 cp /tmp/lt/.github/workflows/*.yml .github/workflows/
 ```
 
