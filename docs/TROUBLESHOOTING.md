@@ -81,7 +81,11 @@ workflow so the manifest and the artifacts are rebuilt together.
 The workflows export by preset name. They need one preset called exactly
 `Android` and one called exactly `Windows Desktop`. The error lists the
 presets your `export_presets.cfg` does have, so rename those, or add the
-missing one.
+missing one. A renamed preset of your own also needs the settings listed under
+*Export presets* in the README's
+[existing-game section](../README.md#add-it-to-an-existing-game). Without them
+the build still succeeds, but the APK cannot update itself and the `.exe` is
+published without its game data.
 
 If it says instead that the project "doesn't have an `export_presets.cfg` file
 at its root", the file never reached the repository. Commit it, and check that

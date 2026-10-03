@@ -86,11 +86,11 @@ changing the key afterwards forces everyone to uninstall first.
 
 ```bash
 cd your-game
-git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
+rm -rf /tmp/lt && git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
 mkdir -p addons .github/workflows
 cp -R /tmp/lt/addons/launcher addons/
 cp -R /tmp/lt/ci .
-cp /tmp/lt/build_version.gd /tmp/lt/version.json /tmp/lt/launcher_config.tres .
+cp /tmp/lt/build_version.gd /tmp/lt/build_version.gd.uid /tmp/lt/version.json /tmp/lt/launcher_config.tres .
 cp -R /tmp/lt/.github/workflows/. .github/workflows/
 cat >> .gitignore <<'EOF'
 
@@ -117,8 +117,20 @@ exactly `Windows Desktop`. A game with no presets yet can take the template's:
 cp /tmp/lt/template/export_presets.cfg .
 ```
 
-If yours has presets already, keep the file, and add or rename those two
-instead. Copying the template's over it replaces your settings.
+If yours has presets already, keep the file and add or rename those two, but
+give them the settings the pipeline relies on, as the template's file does.
+Godot's defaults for a new preset leave them off, and CI stays green without
+them:
+
+- `Android`: `permissions/internet=true`, and
+  `android.permission.REQUEST_INSTALL_PACKAGES` in
+  `permissions/custom_permissions`. Without the first the app cannot check
+  for updates, and without the second it cannot install one.
+- `Windows Desktop`: `binary_format/embed_pck=true`. The release publishes
+  the `.exe` alone, so a build that keeps its data in a separate `.pck` ships
+  without it.
+
+Copying the template's file over yours would replace your own settings.
 
 Then in `project.godot`, register the autoloads **in this order** and point at
 your config:
@@ -130,10 +142,14 @@ UpdateService="*res://addons/launcher/update_service.gd"
 
 [launcher]
 config_path="res://launcher_config.tres"
+
+[rendering]
+textures/vram_compression/import_etc2_astc=true
 ```
 
 `BuildInfo` must come first — it mounts content packs before anything loads a
-scene out of `res://`. Set the main scene to
+scene out of `res://`. The last line turns on the texture format Android
+needs; without it, the release's Android export fails. Set the main scene to
 `res://addons/launcher/launcher.tscn`.
 
 Last, give it your game's identity. `ci/new_game.sh` does this only for a
@@ -143,16 +159,22 @@ copies by hand before your first release:
 - **`launcher_config.tres`**: set `update_repo` to your game's own
   `owner/name`. Left as the template's, your game checks the template's
   releases for updates, and can be offered the demo's content pack as one.
-  Set `game_title` and `tagline` while you are there.
+  Set `play_scene` to the scene that used to be your main scene, or Play has
+  nothing to start. Set `game_title` and `tagline`, and clear `extra_buttons`
+  unless you want the demo's Settings button.
 - **`version.json`**: set `game_name`. The APK, the `.exe` and the release are
   all named from it.
 - **`export_presets.cfg`**, if it came from the template: set
   `package/unique_name` to your own Android package id, and
-  `package/name` and `application/product_name` to your game's name. Two
-  apps with the same package id cannot both be installed on one device.
+  `package/name`, `application/product_name` and
+  `application/file_description` to your game's name. Two apps with the same
+  package id cannot both be installed on one device.
 
 Then commit, push, and enable *Settings → Actions → General → Allow GitHub
-Actions to create and approve pull requests*. [Set up Android
+Actions to create and approve pull requests*. Releases are built from pushes
+to `main`; if your default branch has another name, rename it to `main` on
+GitHub. Editing the workflow instead would be undone the next time you copy
+the template's workflows across. [Set up Android
 signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
 before other people install it.
 
