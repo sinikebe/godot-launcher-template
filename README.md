@@ -176,11 +176,20 @@ copies by hand before your first release:
   package id cannot both be installed on one device.
 
 Then commit, push, and enable *Settings → Actions → General → Allow GitHub
-Actions to create and approve pull requests*. Releases are built from pushes
-to the branches listed at the top of `.github/workflows/release.yml`, `main`
-and `dev`. If your default branch has another name, add it there, and keep
-that edit whenever you copy the template's workflows across again. [Set up
-Android signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
+Actions to create and approve pull requests*.
+
+Releases come from pushes to the branches listed at the top of
+`.github/workflows/release.yml`. A push to your default branch publishes a
+release. A push to any other branch listed there (`dev`, as shipped) publishes
+a separate [prerelease build](docs/UPDATES.md#trying-a-change-on-a-device-before-it-ships).
+Add your default branch to that list if it is not `main`, and take `dev` out
+if your game uses that branch for something else. After either edit, the daily
+sync reports `release.yml` as changed upstream on every run: the difference it
+sees is your own. Copy the template's version across only when it really has
+changed, then put your edit back.
+
+[Set up Android
+signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
 before other people install it.
 
 ## Making it yours
@@ -405,7 +414,10 @@ A token scoped to `contents` is not allowed to write `.github/workflows/`, so th
 starter workflows are **not** synced. When they change upstream -- or when the
 template adds one you do not have -- the sync says so in the run summary of every
 sync run, and in the pull request body when one is opened. You copy them across
-by hand.
+by hand. The sync cannot tell an edit of your own from a change upstream. A
+branch you added to `release.yml` therefore gets that file reported on every
+run, and copying it across drops your branch, so put the edit back after
+copying.
 
 > A pull request opened with `GITHUB_TOKEN` does not trigger other workflows, so
 > the sync job runs the import-and-boot check itself before opening the PR. If
