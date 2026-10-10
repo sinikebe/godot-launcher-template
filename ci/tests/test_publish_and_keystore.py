@@ -312,7 +312,7 @@ class SetupKeystore(PublishBase):
         # The message has to be the script's own: under set -e a failing decode used to end it
         # silently, so the log showed only base64's complaint and no ::error:: annotation.
         self.assertIn("::error::ANDROID_KEYSTORE_BASE64 did not decode", result.stderr)
-        self.assertNotIn("base64:", result.stderr)
+        self.assertNotIn("not base64", result.stdout + result.stderr, "the secret itself was echoed")
         self.assertFalse(self.path.exists(), "a half-decoded keystore was left behind")
         self.assertFalse(self.output.exists() and "kind=" in self.output.read_text(encoding="utf-8"))
 

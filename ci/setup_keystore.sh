@@ -26,8 +26,10 @@ emit() {
 if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
 	# Fed through stdin rather than an argument so it never reaches the process table.
 	# A failing decode is tested here rather than left to set -e, which would stop the script
-	# before the message below could print and leave the half-written file behind.
-	if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH" 2> /dev/null \
+	# before the message below could print and leave the half-written file behind. base64's own
+	# complaint stays visible (it names the problem, never the input), so a full disk is not
+	# mistaken for a bad secret.
+	if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH" \
 		|| [[ ! -s "$KEYSTORE_PATH" ]]; then
 		rm -f "$KEYSTORE_PATH"
 		echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a usable keystore." >&2
