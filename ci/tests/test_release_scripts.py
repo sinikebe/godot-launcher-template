@@ -82,6 +82,8 @@ exit 1
 class Sandbox(unittest.TestCase):
     """A scratch repo with the release scripts in ci/."""
 
+    SCRIPTS = ("collect_changes.sh", "prepare_build.sh")
+
     def setUp(self):
         if shutil.which("git") is None or shutil.which("bash") is None or shutil.which("python3") is None:
             self.skipTest("needs git, bash and python3")
@@ -92,7 +94,7 @@ class Sandbox(unittest.TestCase):
         self.addCleanup(self._dir.cleanup)
         self.root = pathlib.Path(self._dir.name) / "repo"
         (self.root / "ci").mkdir(parents=True)
-        for name in ("collect_changes.sh", "prepare_build.sh"):
+        for name in self.SCRIPTS:
             shutil.copy(CI_DIR / name, self.root / "ci" / name)
         self.bin = pathlib.Path(self._dir.name) / "bin"
         self.bin.mkdir()

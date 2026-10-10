@@ -305,7 +305,11 @@ sharing builds, not after.
 
 - The workflow only runs on `push` to `main` and manual dispatch. Pull requests
   go through `ci.yml`, which has no secrets and publishes nothing — so a fork PR
-  can never reach the key.
+  can never reach the key. It does rehearse the end of the release: `ci/release_dry_run.sh`
+  runs the assemble and manifest steps of `release.yml` itself, checks the manifest against the
+  files, and runs `publish_release.sh` against a stand-in for `gh`, so a broken release path
+  fails the pull request rather than the first merge. Whether GitHub accepts the upload is
+  the one thing it cannot show.
 - `contents: write` is granted to the release job only; the workflow default is
   `contents: read`.
 - The keystore is written under `$RUNNER_TEMP`, outside the workspace, so no
