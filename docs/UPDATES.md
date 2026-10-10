@@ -33,7 +33,12 @@ It is monotonic, moves on every merge, and needs no bookkeeping.
 2. If `user://update_state.json` points at a staged pack whose version is
    *strictly greater* than the binary's own content version, the pack is mounted
    with `ProjectSettings.load_resource_pack()`. Anything at or below is stale —
-   it was superseded by a binary update — and gets deleted.
+   it was superseded by a binary update — and gets deleted. Before it is
+   mounted the pack's size and its `sha256` (recorded in that file when it was
+   downloaded) are checked again; a pack that no longer matches is discarded, not
+   mounted. Hashing costs about 2 ms per MB on a desktop, so it is cheap next to
+   starting the engine. State written before `sha256` was recorded has nothing to
+   compare and mounts as before.
 3. The main scene loads, already seeing the pack's content. Before the
    launcher builds its screen it runs `_launcher_opening()` from the game's
    `res://launcher_hooks.gd`, when there is one. That file ships in the pack
@@ -44,6 +49,17 @@ It is monotonic, moves on every merge, and needs no bookkeeping.
 Packs are stored per-version (`user://content/content-<n>.pck`) rather than
 under one name. A mounted pack stays locked for the life of the process on
 Windows, so a new download must never try to overwrite the one in use.
+
+Downloads are staged in `user://staging/` first, and a launch clears out what is
+provably dead there rather than emptying it. A second copy of the app may be
+downloading into it, an APK may be open in the system installer, and the Windows
+helper waits up to a minute for the app to exit before it copies `update-<n>.exe`.
+So two rules apply: `update-<n>.apk` and `update-<n>.exe` with *n* at or below this
+binary's own `binary_version` are removed (that update is installed), and any other
+file of that kind (`*.part`, `apply_update.ps1`, an update for a newer
+binary) is removed once more than 24 hours have passed since it was last written. A good APK left by
+backing out of the installer therefore stays long enough to be reused. Files the
+launcher did not write are left alone.
 
 ## The manifest
 

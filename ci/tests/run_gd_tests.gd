@@ -59,6 +59,9 @@ func _initialize() -> void:
 	_test_more_changelog()
 	_test_mount_staged_content()
 	_test_mount_edge_cases()
+	_test_checksum_at_mount()
+	_test_staging_sweep()
+	_test_too_new_manifest_is_not_cached()
 	_cleanup()
 
 	print("%d checks, %d failed" % [_checks, _fails])
@@ -504,7 +507,203 @@ func _test_mount_edge_cases() -> void:
 	_bi.clear_state()
 
 
+# ---------------------------------------------------------------------------
+# BuildInfo: checksum at mount, staging sweep.  UpdateService: schema vs cache.
+# ---------------------------------------------------------------------------
+
+## Stages a real pack whose state records [param sha]; "" records the right one.
+func _stage_sha(version: int, sha := "") -> Dictionary:
+	var pack := _make_pack(version)
+	_bi.write_state({"content_version": version, "pack_path": pack["path"], "branch": "",
+			"size": pack["size"], "sha256": sha if sha != "" else FileAccess.get_sha256(pack["path"])})
+	return pack
+
+
+func _test_checksum_at_mount() -> void:
+	_wipe()
+	_stage_sha(21)
+	_mount_from_clean(5)
+	eq(_bi.content_version, 21, "checksum recorded and right: mounts")
+	eq(_bi.pack_error, "", "checksum right: no error")
+
+	# the manifest's hex may be any case and the state may carry stray whitespace
+	_wipe()
+	var upper := _make_pack(22)
+	_bi.write_state({"content_version": 22, "pack_path": upper["path"], "branch": "", "size": upper["size"],
+			"sha256": "  " + FileAccess.get_sha256(upper["path"]).to_upper() + " "})
+	_mount_from_clean(5)
+	eq(_bi.content_version, 22, "checksum in another case, padded: still compared as the same hash")
+
+	# nothing recorded means nothing to compare: older state, or an empty value
+	_wipe()
+	_stage_sha(23)
+	var state: Dictionary = _bi.read_state()
+	state.erase("sha256")
+	_bi.write_state(state)
+	_mount_from_clean(5)
+	eq(_bi.content_version, 23, "no sha256 key: still mounts")
+	_wipe()
+	var empty := _make_pack(24)
+	_bi.write_state({"content_version": 24, "pack_path": empty["path"], "branch": "", "size": empty["size"], "sha256": ""})
+	_mount_from_clean(5)
+	eq(_bi.content_version, 24, "empty sha256: still mounts")
+
+	# a recorded hash that is not the file's: refused, and the pack does not stay behind
+	_wipe()
+	var wrong := _stage_sha(25, "0".repeat(64))
+	_mount_from_clean(5)
+	eq(_bi.content_version, 5, "wrong checksum: not mounted")
+	check("checksum" in _bi.pack_error, "wrong checksum: says why")
+	eq(_bi.active_pack_path, "", "wrong checksum: nothing active")
+	check(_bi.read_state().is_empty(), "wrong checksum: state cleared")
+	check(not FileAccess.file_exists(wrong["path"]), "wrong checksum: the pack is swept")
+
+	# the case the size check cannot see: same length, different bytes
+	_wipe()
+	var tampered := _stage_sha(26)
+	var f := FileAccess.open(tampered["path"], FileAccess.READ_WRITE)
+	f.seek(f.get_length() - 1)
+	var last := f.get_8()
+	f.seek(f.get_length() - 1)
+	f.store_8(last ^ 0xFF)
+	f.close()
+	eq(FileAccess.open(tampered["path"], FileAccess.READ).get_length(), tampered["size"], "(setup) the tampered pack keeps its size")
+	_mount_from_clean(5)
+	eq(_bi.content_version, 5, "same size, altered bytes: not mounted")
+	check("checksum" in _bi.pack_error, "same size, altered bytes: caught by the checksum")
+
+	# order: the cheap size check still comes first
+	_wipe()
+	var short := _make_pack(27)
+	_bi.write_state({"content_version": 27, "pack_path": short["path"], "branch": "", "size": int(short["size"]) - 1,
+			"sha256": "0".repeat(64)})
+	_mount_from_clean(5)
+	check("truncated" in _bi.pack_error, "order: truncated AND wrong checksum is reported as truncated")
+	_wipe()
+
+
+func _staging_file(file_name: String) -> String:
+	DirAccess.make_dir_recursive_absolute(_bi.STAGING_DIR)
+	var path: String = _bi.STAGING_DIR.path_join(file_name)
+	_write_text(path, "x")
+	return path
+
+
+func _wipe_staging() -> void:
+	var dir := DirAccess.open(_bi.STAGING_DIR)
+	if dir != null:
+		for file in dir.get_files():
+			dir.remove(file)
+
+
+func _newest_mtime(paths: Array) -> int:
+	var newest := 0
+	for path: String in paths:
+		newest = maxi(newest, int(FileAccess.get_modified_time(path)))
+	return newest
+
+
+func _oldest_mtime(paths: Array) -> int:
+	var oldest := 1 << 62
+	for path: String in paths:
+		oldest = mini(oldest, int(FileAccess.get_modified_time(path)))
+	return oldest
+
+
+func _test_staging_sweep() -> void:
+	var real_binary: int = _bi.binary_version
+	_bi.binary_version = 4
+	_wipe_staging()
+
+	# no staging dir at all is fine
+	DirAccess.remove_absolute(_bi.STAGING_DIR)
+	_bi._sweep_staging_dir()
+	check(true, "no staging dir: nothing to sweep, no crash")
+
+	var installed_apk := _staging_file("update-3.apk")
+	var installed_exe := _staging_file("update-4.exe")
+	var pending_apk := _staging_file("update-5.apk")
+	var part := _staging_file("content-9.pck.part")
+	var script := _staging_file("apply_update.ps1")
+	var strangers := [_staging_file("notes.txt"), _staging_file("update-x.apk"), _staging_file("update-5.zip"),
+			_staging_file("update-.apk"), _staging_file("update--3.apk"), _staging_file("update-3.apk.bak")]
+	var content_pack := _make_pack(31)
+
+	_bi._sweep_staging_dir()
+	check(not FileAccess.file_exists(installed_apk), "an update at or below this binary's version is installed: swept")
+	check(not FileAccess.file_exists(installed_exe), "an update AT this binary's version is swept too")
+	check(FileAccess.file_exists(pending_apk), "an update for a newer binary is kept while it is fresh")
+	check(FileAccess.file_exists(part), "a fresh .part is kept: another copy of the app may be writing it")
+	check(FileAccess.file_exists(script), "a fresh apply_update.ps1 is kept: the helper may still be running")
+	for path: String in strangers:
+		check(FileAccess.file_exists(path), "a file the launcher did not write is left alone: " + path.get_file())
+	check(FileAccess.file_exists(content_pack["path"]), "the content dir is not touched by the staging sweep")
+
+	# age: strictly more than the limit since the last write. The files were written a moment
+	# apart, so their whole-second times can differ: "kept" is judged from the oldest, "swept"
+	# from the newest, which keeps the test from depending on a second not rolling over.
+	eq(_bi.STAGING_MAX_AGE_SECONDS, 86400, "the staging age limit is 24 hours")
+	var keepers := [pending_apk, part, script]
+	var oldest := _oldest_mtime(keepers)
+	var newest := _newest_mtime(keepers)
+	_bi._sweep_staging_dir(oldest + _bi.STAGING_MAX_AGE_SECONDS)
+	for path: String in keepers:
+		check(FileAccess.file_exists(path), "exactly at the age limit: kept: " + path.get_file())
+	_bi._sweep_staging_dir(newest + _bi.STAGING_MAX_AGE_SECONDS + 1)
+	for path: String in keepers:
+		check(not FileAccess.file_exists(path), "past the age limit: swept: " + path.get_file())
+	for path: String in strangers:
+		check(FileAccess.file_exists(path), "past the age limit, still left alone: " + path.get_file())
+
+	# a clock that reads earlier than the file never deletes it
+	var future := _staging_file("content-10.pck.part")
+	_bi._sweep_staging_dir(int(FileAccess.get_modified_time(future)) - 10 * _bi.STAGING_MAX_AGE_SECONDS)
+	check(FileAccess.file_exists(future), "a file dated after 'now' is kept")
+
+	# a launch does it: a real BuildInfo, built from scratch, sweeps as it starts
+	_wipe()
+	_wipe_staging()
+	var done := _staging_file("update-%d.apk" % real_binary)
+	var next := _staging_file("update-%d.apk" % (real_binary + 1))
+	var fresh: Node = load("res://addons/launcher/build_info.gd").new()
+	check(not FileAccess.file_exists(done), "at launch: the update this binary already is gets swept")
+	check(FileAccess.file_exists(next), "at launch: the one for a newer binary stays")
+	fresh.free()
+
+	_wipe_staging()
+	_bi.binary_version = real_binary
+
+
+func _test_too_new_manifest_is_not_cached() -> void:
+	_reset_build(2)
+	_us.manifest = {"schema": _us.SUPPORTED_SCHEMA + 1, "changelog": [_entry(9, ["new"])]}
+	_us._interpret_manifest()
+	eq(_us.state, _us.State.UNAVAILABLE, "a manifest from a newer schema: the check is refused")
+	check(not FileAccess.file_exists(_us.CHANGELOG_CACHE_PATH), "a newer schema: its changelog is not cached")
+
+	# and it cannot overwrite a good cache either
+	_us.manifest = {"changelog": [_entry(6, ["a"])]}
+	_us._cache_changelog()
+	_us.manifest = {"schema": _us.SUPPORTED_SCHEMA + 1, "changelog": [_entry(9, ["new"])]}
+	_us._interpret_manifest()
+	eq(_versions(_us.full_changelog()), [6], "a newer schema: the menu in this same session still shows the cached history")
+	_us.manifest = {}
+	eq(_versions(_us.full_changelog()), [6], "a newer schema leaves the cached history as it was")
+
+	# the ones this build can read are cached, including a manifest with no schema key at all
+	for schema: Variant in [_us.SUPPORTED_SCHEMA, null]:
+		_reset_build(2)
+		_us.manifest = {"changelog": [_entry(8, ["b"])]}
+		if schema != null:
+			_us.manifest["schema"] = schema
+		_us._interpret_manifest()
+		_us.manifest = {}
+		eq(_versions(_us.full_changelog()), [8], "a readable manifest (schema %s) is cached" % str(schema))
+	_reset_build(2)
+
+
 func _cleanup() -> void:
+	_wipe_staging()
 	_wipe()
 	var dir := DirAccess.open("user://")
 	if dir != null:
