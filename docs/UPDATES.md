@@ -333,7 +333,7 @@ sharing builds, not after.
 Merge to `main`. The workflow exports, hashes, writes the manifest, and publishes
 the release tagged `v<version_name>+<content_version>`.
 
-`version_name` has to start with a letter or digit and use only letters, digits, `.`, `_`, `+` and `-`, with no `..`. It ends up in the tag, in `export_presets.cfg`, in a GDScript constant and in a shell step, so a space, a quote, `&`, `|` or a backslash is refused by `ci/prepare_build.sh` before it writes
+`version_name` has to start with a letter or digit and use only letters, digits, `.`, `_` and `-`, with no `..`. A `+` is refused too: it separates the name from the content version in the tag, and the patch-note collection splits tags on it. It ends up in the tag, in `export_presets.cfg`, in a GDScript constant and in a shell step, so a space, a quote, `&`, `|` or a backslash is refused by `ci/prepare_build.sh` before it writes
 anything, rather than corrupting a file or failing at the publish step.
 
 Bump `binary_version` in `version.json` in the same commit if the change needs a

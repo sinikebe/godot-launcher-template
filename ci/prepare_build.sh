@@ -58,8 +58,11 @@ BINARY_VERSION="$(python3 -c 'import json;print(int(json.load(open("version.json
 # preset file), a "|" ends the expression halfway through the run, and a quote or a
 # backslash breaks the GDScript constant. A tag cannot hold a space, ".." or most of the
 # rest either, so a name refused here would also have failed at "gh release create".
-if [[ ! "$VERSION_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || [[ "$VERSION_NAME" == *..* ]]; then
-	echo "::error::version_name in version.json is not usable: it has to start with a letter or digit and use only letters, digits, dot, underscore, plus and hyphen, with no \"..\"." >&2
+# "+" is refused too although a tag could hold it: it is the separator in "v<name>+<n>",
+# and collect_changes.sh finds the previous release by splitting tags on it, so a name
+# with a "+" made it see no previous release and describe the whole history.
+if [[ ! "$VERSION_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ "$VERSION_NAME" == *..* ]]; then
+	echo "::error::version_name in version.json is not usable: it has to start with a letter or digit and use only letters, digits, dot, underscore and hyphen, with no \"..\"." >&2
 	echo "It becomes part of the release tag and is written into build_version.gd and export_presets.cfg, so a space, a quote, \"&\", \"|\" or a backslash would corrupt them." >&2
 	exit 1
 fi

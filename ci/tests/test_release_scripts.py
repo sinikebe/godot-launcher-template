@@ -388,7 +388,7 @@ class PrepareBuild(PrepareHelpers):
         return {name: self.read(name) for name in ("export_presets.cfg", "project.godot", "build_version.gd")}
 
     def test_plain_version_names_are_accepted_and_written_everywhere(self):
-        for name in ("1.2.0", "1.0-beta", "2.0.0+build5", "rc.1", "0.1.0_x", "10", "v1"):
+        for name in ("1.2.0", "1.0-beta", "2024.10", "rc.1", "0.1.0_x", "10", "v1"):
             with self.subTest(name=name):
                 self.commit("rename", {"version.json": json.dumps(dict(VERSION_JSON, version_name=name))})
                 out = self.prepare()
@@ -399,7 +399,7 @@ class PrepareBuild(PrepareHelpers):
     def test_a_version_name_that_would_corrupt_a_file_is_refused_before_any_is_written(self):
         # "&" in a sed replacement is the matched text: it exited 0 and wrote
         # version/name="1.0 version/name="0.1.0" beta" into the preset file.
-        for name in ("1.0 & beta", "a|b", 'x"y', "1.0\\x", "a/b", "", "a..b", "-x", "é", "1.0 beta", "a;b",
+        for name in ("1.0 & beta", "a|b", 'x"y', "1.0\\x", "a/b", "", "a..b", "-x", "é", "1.0 beta", "a;b", "2.0.0+build5",
                      "$(touch pwned)", "a\nb"):
             with self.subTest(name=name):
                 self.commit("rename", {"version.json": json.dumps(dict(VERSION_JSON, version_name=name))})
