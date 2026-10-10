@@ -333,6 +333,13 @@ sharing builds, not after.
 Merge to `main`. The workflow exports, hashes, writes the manifest, and publishes
 the release tagged `v<version_name>+<content_version>`.
 
+`version_name` has to start with an ASCII letter or digit and use only ASCII letters, digits, `.`, `_` and `-`,
+with no `..`. It ends up in the tag, in `export_presets.cfg`, in a GDScript constant and in a shell
+step, so `ci/prepare_build.sh` refuses anything else before it writes a file, rather than corrupting one or
+failing at the publish step. The list is stricter than git requires: some refused names (an accent, `@`, `#`)
+would make a valid tag. A `+` is refused because it separates the name from the content version in
+the tag, and the patch-note collection splits tags on it.
+
 Bump `binary_version` in `version.json` in the same commit if the change needs a
 new binary. If you forget, players on the old binary will download a content pack
 that cannot actually deliver the change — bump it and merge again to correct.

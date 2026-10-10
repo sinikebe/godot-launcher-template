@@ -64,6 +64,28 @@ run/main_scene="res://main.tscn"
 window/size/viewport_width=1280
 """
 
+SECOND_ANDROID = """
+[preset.2]
+
+name="Android Demo"
+platform="Android"
+
+[preset.2.options]
+
+version/code=1
+version/name="0.0.0"
+package/unique_name="com.example.game2"
+package/name="Game Two"
+"""
+
+
+def options_of(text, number):
+    """The key="value" pairs of one [preset.N.options] section."""
+    match = re.search(r"^\[preset\.%d\.options\]\n(.*?)(?=^\[|\Z)" % number, text, re.M | re.S)
+    assert match, "no [preset.%d.options] section" % number
+    return dict(re.findall(r'^([A-Za-z0-9_/]+)="([^"]*)"$', match.group(1), re.M))
+
+
 FAKE_GH = """#!/usr/bin/env bash
 echo "$@" >> "$FAKE_GH_LOG"
 if [[ "$FAKE_GH_MODE" == ok ]]; then
@@ -286,6 +308,9 @@ class PrepareHelpers(Sandbox):
         self.assertIsNotNone(match, name)
         return match.group(1)
 
+    def snapshot(self):
+        return {name: self.read(name) for name in ("export_presets.cfg", "project.godot", "build_version.gd")}
+
     def write_notes(self, text):
         path = self.root / "build/notes"
         path.mkdir(parents=True, exist_ok=True)
@@ -361,7 +386,49 @@ class PrepareBuild(PrepareHelpers):
         self.commit("no name", {"version.json": json.dumps({"version_name": "0.1.0", "binary_version": 2})})
         self.assertEqual(self.prepare()["game_name"], "Game")
 
+    # -- version_name -----------------------------------------------------
+    def test_plain_version_names_are_accepted_and_written_everywhere(self):
+        for name in ("1.2.0", "1.0-beta", "2024.10", "rc.1", "0.1.0_x", "10", "v1"):
+            with self.subTest(name=name):
+                self.commit("rename", {"version.json": json.dumps(dict(VERSION_JSON, version_name=name))})
+                out = self.prepare()
+                self.assertEqual(out["tag"], "v%s+%s" % (name, out["content_version"]))
+                self.assertIn('version/name="%s"\n' % name, self.read("export_presets.cfg"))
+                self.assertEqual(self.const("VERSION_NAME"), '"%s"' % name)
+
+    def test_a_version_name_that_would_corrupt_a_file_is_refused_before_any_is_written(self):
+        # "&" in a sed replacement is the matched text: it exited 0 and wrote
+        # version/name="1.0 version/name="0.1.0" beta" into the preset file.
+        for name in ("1.0 & beta", "a|b", 'x"y', "1.0\\x", "a/b", "", "a..b", "-x", "é", "1.0 beta", "a;b", "2.0.0+build5",
+                     "$(touch pwned)", "a\nb"):
+            with self.subTest(name=name):
+                self.commit("rename", {"version.json": json.dumps(dict(VERSION_JSON, version_name=name))})
+                before = self.snapshot()
+                result = self.run_script("prepare_build.sh")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("::error::version_name", result.stderr)
+                self.assertEqual(self.snapshot(), before, "a refused name must not touch any file")
+                self.assertFalse((self.root / "pwned").exists())
+
+    def test_a_missing_version_name_is_an_error(self):
+        self.commit("no name", {"version.json": json.dumps({"game_name": "X", "binary_version": 7})})
+        result = self.run_script("prepare_build.sh")
+        self.assertNotEqual(result.returncode, 0)
+
     # -- patch notes ------------------------------------------------------
+    def test_notes_that_are_not_a_list_mean_an_empty_list(self):
+        # null, a number and a boolean raised a TypeError; a string was split into characters.
+        for text in ("null", "0", "7.5", "true", '"ab"', '{"a": "b"}'):
+            with self.subTest(text=text):
+                self.write_notes(text)
+                self.prepare()
+                self.assertEqual(self.changes_literal(), [])
+
+    def test_a_list_of_notes_is_still_used(self):
+        self.write_notes(json.dumps(["one", "two"]))
+        self.prepare()
+        self.assertEqual(self.changes_literal(), ["one", "two"])
+
     def test_notes_are_baked_in_capped_and_quoted(self):
         items = ['Fixé "le" bug', "back\\slash", "ligne"] + ["n%d" % i for i in range(30)]
         self.write_notes(json.dumps(items))
@@ -460,6 +527,102 @@ class BranchBuild(PrepareHelpers):
         self.commit("dev game", {"export_presets.cfg": PRESETS.replace("com.example.game", "com.example.dev")})
         self.prepare(RELEASE_BRANCH="dev")
         self.assertIn('package/unique_name="com.example.dev.dev"', self.read("export_presets.cfg"))
+
+    def test_two_android_presets_with_different_package_ids_each_keep_their_own(self):
+        # One dictionary for the whole file made the last preset's id win for every preset:
+        # both got com.example.game2.dev, and "Game Two (dev)" overwrote the first name.
+        self.commit("two android presets", {"export_presets.cfg": PRESETS + SECOND_ANDROID})
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("applied to 2 Android package id(s)", result.stdout)
+        presets = self.read("export_presets.cfg")
+        first, second = options_of(presets, 0), options_of(presets, 2)
+        self.assertEqual(first["package/unique_name"], "com.example.game.dev")
+        self.assertEqual(first["package/name"], "Game (dev)")
+        self.assertEqual(second["package/unique_name"], "com.example.game2.dev")
+        self.assertEqual(second["package/name"], "Game Two (dev)")
+        self.assertEqual(options_of(presets, 1)["application/product_name"], "Game (dev)")
+
+    def test_two_android_presets_sharing_a_package_id_both_get_it_extended(self):
+        # The common case: an APK preset and an AAB preset for the same app.
+        shared = SECOND_ANDROID.replace("com.example.game2", "com.example.game").replace("Game Two", "Game")
+        self.commit("apk and aab", {"export_presets.cfg": PRESETS + shared})
+        self.prepare(RELEASE_BRANCH="dev")
+        presets = self.read("export_presets.cfg")
+        self.assertEqual(options_of(presets, 0)["package/unique_name"], "com.example.game.dev")
+        self.assertEqual(options_of(presets, 2)["package/unique_name"], "com.example.game.dev")
+
+    def test_the_first_android_preset_is_not_overwritten_by_a_later_one(self):
+        # Same as above with the presets the other way round, so "last wins" and "first wins"
+        # cannot both pass.
+        swapped = SECOND_ANDROID + PRESETS.replace("preset.0", "preset.3").replace("preset.1", "preset.4")
+        self.commit("order", {"export_presets.cfg": swapped})
+        self.prepare(RELEASE_BRANCH="dev")
+        presets = self.read("export_presets.cfg")
+        self.assertEqual(options_of(presets, 2)["package/unique_name"], "com.example.game2.dev")
+        self.assertEqual(options_of(presets, 3)["package/unique_name"], "com.example.game.dev")
+
+    def test_running_it_twice_with_two_android_presets_changes_nothing_the_second_time(self):
+        self.commit("two android presets", {"export_presets.cfg": PRESETS + SECOND_ANDROID})
+        self.prepare(RELEASE_BRANCH="dev")
+        first = self.read("export_presets.cfg")
+        self.prepare(RELEASE_BRANCH="dev")
+        self.assertEqual(self.read("export_presets.cfg"), first)
+
+    def test_preset_numbers_of_two_digits_are_handled_like_any_other(self):
+        # Presets 1 and 10 must not be confused, and 10 and above must be branded at all.
+        many = PRESETS
+        for n in (10, 11):
+            many += SECOND_ANDROID.replace("preset.2", "preset.%d" % n).replace("com.example.game2", "com.example.game%d" % n)
+        self.commit("many presets", {"export_presets.cfg": many})
+        self.prepare(RELEASE_BRANCH="dev")
+        presets = self.read("export_presets.cfg")
+        self.assertEqual(options_of(presets, 0)["package/unique_name"], "com.example.game.dev")
+        self.assertEqual(options_of(presets, 10)["package/unique_name"], "com.example.game10.dev")
+        self.assertEqual(options_of(presets, 11)["package/unique_name"], "com.example.game11.dev")
+
+    def test_an_android_preset_numbered_ten_without_an_id_is_refused_too(self):
+        bare = SECOND_ANDROID.replace("preset.2", "preset.10").replace('package/unique_name="com.example.game2"\n', "")
+        self.commit("preset 10 without an id", {"export_presets.cfg": PRESETS + bare})
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("preset.10 has no package/unique_name", result.stderr)
+
+    def test_a_line_starting_with_a_bracket_inside_a_value_does_not_end_the_section(self):
+        # The old pattern stopped at any "[" line: the label after it was dropped silently.
+        tricky = PRESETS.replace('package/name="Game"\n', 'notes="first\n[not a header]\nlast"\npackage/name="Game"\n')
+        self.assertIn("[not a header]", tricky)
+        self.commit("multi-line value", {"export_presets.cfg": tricky})
+        self.prepare(RELEASE_BRANCH="dev")
+        presets = self.read("export_presets.cfg")
+        self.assertIn('package/name="Game (dev)"', presets)
+        self.assertIn('package/unique_name="com.example.game.dev"', presets)
+
+    def test_a_branch_build_also_refuses_a_bad_version_name(self):
+        self.commit("bad name", {"version.json": json.dumps(dict(VERSION_JSON, version_name="1.0 & beta"))})
+        before = self.snapshot()
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error::version_name", result.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_presets_that_are_not_committed_yet_are_branded_from_the_working_copy(self):
+        (self.root / "export_presets.cfg").write_text(PRESETS.replace("com.example.game", "com.example.fresh"), encoding="utf-8")
+        self.git("rm", "-q", "--cached", "export_presets.cfg")
+        self.git("commit", "-q", "-m", "untrack presets")
+        self.prepare(RELEASE_BRANCH="dev")
+        self.assertEqual(options_of(self.read("export_presets.cfg"), 0)["package/unique_name"], "com.example.fresh.dev")
+
+    def test_every_android_preset_needs_its_own_package_id(self):
+        # One preset with an id must not cover another without: that one would build an
+        # APK that replaces the release app.
+        bare = SECOND_ANDROID.replace('package/unique_name="com.example.game2"\n', "")
+        self.commit("one preset without an id", {"export_presets.cfg": PRESETS + bare})
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("preset.2 has no package/unique_name", result.stderr)
+        self.assertNotIn(".dev", self.read("export_presets.cfg"))
+        self.assertNotIn("(dev)", self.read("export_presets.cfg"))
 
     def test_an_android_preset_without_a_package_id_is_refused_without_a_label_written(self):
         bad = PRESETS.replace('package/unique_name="com.example.game"\n', "")

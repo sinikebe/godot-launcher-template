@@ -51,6 +51,22 @@ EXE_NAME="${_DERIVED[3]}"
 VERSION_NAME="$(python3 -c 'import json;print(json.load(open("version.json",encoding="utf-8"))["version_name"])')"
 BINARY_VERSION="$(python3 -c 'import json;print(int(json.load(open("version.json",encoding="utf-8"))["binary_version"]))')"
 
+# The version name is written into build_version.gd, into export_presets.cfg through
+# sed, into the release tag "v<name>+<n>", and release.yml passes it to a shell script.
+# So it has to be a plain token, checked here before any file is touched: an "&" in the
+# sed replacement is the text matched (it silently wrote a second version/name= into the
+# preset file), a "|" ends the expression halfway through the run, and a quote or a
+# backslash breaks the GDScript constant. A tag cannot hold a space, ".." or most of the
+# rest either, so a name refused here would also have failed at "gh release create".
+# "+" is refused too although a tag could hold it: it is the separator in "v<name>+<n>",
+# and collect_changes.sh finds the previous release by splitting tags on it, so a name
+# with a "+" made it see no previous release and describe the whole history.
+if [[ ! "$VERSION_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ "$VERSION_NAME" == *..* ]]; then
+	echo "::error::version_name in version.json is not usable: it has to start with a letter or digit and use only letters, digits, dot, underscore and hyphen, with no \"..\"." >&2
+	echo "It becomes part of the release tag and is written into build_version.gd and export_presets.cfg, so a space, a quote, \"&\", \"|\" or a backslash would corrupt them." >&2
+	exit 1
+fi
+
 # Commit count is monotonic on main and moves on every merge, which is exactly
 # the property a content version needs.
 CONTENT_VERSION="$(git rev-list --count HEAD)"
@@ -124,7 +140,10 @@ path = "build/notes/changes.json"
 if os.path.isfile(path):
     try:
         with open(path, encoding="utf-8") as fh:
-            items = [str(x) for x in json.load(fh)][:20]
+            data = json.load(fh)
+        # null, a number or a string is valid JSON and not a list of notes. A string
+        # would otherwise be split into characters and a number would raise.
+        items = [str(x) for x in data][:20] if isinstance(data, list) else []
     except (ValueError, OSError):
         items = []
 # json.dumps produces string literals GDScript accepts verbatim.
@@ -211,39 +230,67 @@ text = path.read_text(encoding="utf-8")
 # id, so the branch APK would have replaced the player's app -- and the script
 # said it had applied the identity. Reading the committed value is exact, and a
 # rerun in the same workspace lands on the same answer.
-def committed(name: str) -> dict[str, str]:
+def committed_text(name: str) -> str:
     try:
-        blob = subprocess.run(
+        return subprocess.run(
             ["git", "show", f"HEAD:{name}"],
             capture_output=True, text=True, check=True,
         ).stdout
     except (subprocess.CalledProcessError, OSError):
         # Not committed yet: fall back to the working copy, which is right on a
         # first run and is all a brand-new project can offer.
-        blob = text
-    return dict(re.findall(r'^([A-Za-z0-9_/]+)="([^"]*)"$', blob, flags=re.M))
+        return text
 
-base = committed("export_presets.cfg")
+
+def parse_options(body: str) -> dict[str, str]:
+    return dict(re.findall(r'^([A-Za-z0-9_/]+)="([^"]*)"$', body, flags=re.M))
 
 
 def set_key(body: str, key: str, value: str) -> tuple[str, int]:
     return re.subn(rf'^{re.escape(key)}=.*$', lambda _m: f'{key}="{value}"', body, flags=re.M)
 
 
-package_edits = 0
-if "package/unique_name" in base:
-    text, package_edits = set_key(text, "package/unique_name", f'{base["package/unique_name"]}.{segment}')
+# Each export preset has its own [preset.N.options] section, and its own package id: a
+# game can have an APK preset and an AAB preset, or a demo and a full edition. Reading the
+# whole file into one dictionary let the last preset's value overwrite every other's, and
+# then wrote that one value into all of them.
+# A section ends at the next preset header, not at any line that starts with "[": a value
+# can span lines, and a line inside it that begins with "[" would otherwise cut the section
+# short and silently skip the keys after it.
+OPTIONS = re.compile(r"^(\[preset\.(\d+)\.options\][^\n]*\n)(.*?)(?=^\[preset\.\d+(?:\.options)?\]|\Z)", re.M | re.S)
+PRESET = re.compile(r"^\[preset\.(\d+)\][^\n]*\n(.*?)(?=^\[preset\.\d+(?:\.options)?\]|\Z)", re.M | re.S)
 
-for key in ("package/name", "application/product_name", "application/file_description"):
-    if key in base:
-        text, _ = set_key(text, key, f"{base[key]}{label}")
+committed_options = {number: body for _header, number, body in OPTIONS.findall(committed_text("export_presets.cfg"))}
+android = {number for number, body in PRESET.findall(text) if re.search(r'^platform="Android"$', body, flags=re.M)}
+edited: set[str] = set()
+
+
+def brand(match: re.Match) -> str:
+    number, body = match.group(2), match.group(3)
+    base = parse_options(committed_options.get(number, body))
+    if "package/unique_name" in base:
+        body, count = set_key(body, "package/unique_name", f'{base["package/unique_name"]}.{segment}')
+        if count:
+            edited.add(number)
+    for key in ("package/name", "application/product_name", "application/file_description"):
+        if key in base:
+            body, _ = set_key(body, key, f"{base[key]}{label}")
+    return match.group(1) + body
+
+
+text = OPTIONS.sub(brand, text)
+package_edits = len(edited)
 
 # Checked before the file is written: an aborted run must not leave a tracked file
-# half-rewritten for a developer to commit by accident.
-if package_edits == 0 and re.search(r'^platform="Android"$', text, flags=re.M):
+# half-rewritten for a developer to commit by accident. Every Android preset needs an id
+# of its own to extend, because the one without would build an APK that replaces the
+# release app.
+missing = sorted(android - edited, key=int)
+if missing or (not android and re.search(r'^platform="Android"$', text, flags=re.M)):
+    names = ", ".join(f"preset.{n}" for n in missing) or "an Android preset"
     sys.exit(
-        "export_presets.cfg has an Android preset but no package/unique_name to "
-        "give a branch segment; a branch APK would replace the release app."
+        f"export_presets.cfg: {names} has no package/unique_name to give a branch "
+        "segment; a branch APK would replace the release app."
     )
 
 path.write_text(text, encoding="utf-8")
