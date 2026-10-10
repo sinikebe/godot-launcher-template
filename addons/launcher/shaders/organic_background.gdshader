@@ -37,9 +37,13 @@ float fbm(vec2 p) {
 
 void fragment() {
 	// Correct for aspect so the blobs stay round on ultrawide and on phones.
+	// SCREEN_PIXEL_SIZE is (1/width, 1/height), so y / x is already width / height:
+	// UV spans width pixels across x and height pixels across y, and scaling p.x by
+	// that ratio makes one unit of p the same length on both axes. It is the right
+	// factor in both orientations, so there is nothing to clamp or invert.
 	vec2 uv = UV;
 	vec2 p = uv;
-	p.x *= max(1.0, 1.0 / max(SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x, 0.0001));
+	p.x *= SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x;
 
 	float t = TIME * drift_speed;
 	float base = fbm(p * 2.6 + vec2(t, t * 0.55));
