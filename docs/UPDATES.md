@@ -305,7 +305,18 @@ sharing builds, not after.
 
 - The workflow only runs on `push` to `main` and manual dispatch. Pull requests
   go through `ci.yml`, which has no secrets and publishes nothing — so a fork PR
-  can never reach the key.
+  can never reach the key. It does rehearse the end of the release: `ci/release_dry_run.sh`
+  runs the assemble and manifest steps of `release.yml` itself, checks the manifest against the
+  files, and runs `publish_release.sh` against a stand-in for `gh`, so a broken release path
+  fails the pull request rather than the first merge. Whether GitHub accepts the upload is
+  the one thing it cannot show.
+  The rehearsal finds the release steps by name ("Assemble release directory", "Build update
+  manifest") and expects the release directory to be `build/release`; it runs them with `bash -euo
+  pipefail` and the `steps.version.outputs.*` values as environment variables, and ignores a step's own `env:`,
+  `working-directory:`, `shell:` and `if:`. A game that renames those steps or moves the directory
+  should remove the "Rehearse the release assembly" step from its own `ci.yml` (workflows are the
+  game's, `ci/` is overwritten by the sync). The unit tests that read the workflows only apply
+  to the template itself and are skipped in a game.
 - `contents: write` is granted to the release job only; the workflow default is
   `contents: read`.
 - The keystore is written under `$RUNNER_TEMP`, outside the workspace, so no

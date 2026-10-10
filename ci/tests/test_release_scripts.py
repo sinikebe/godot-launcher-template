@@ -82,6 +82,8 @@ exit 1
 class Sandbox(unittest.TestCase):
     """A scratch repo with the release scripts in ci/."""
 
+    SCRIPTS = ("collect_changes.sh", "prepare_build.sh")
+
     def setUp(self):
         if shutil.which("git") is None or shutil.which("bash") is None or shutil.which("python3") is None:
             self.skipTest("needs git, bash and python3")
@@ -92,7 +94,7 @@ class Sandbox(unittest.TestCase):
         self.addCleanup(self._dir.cleanup)
         self.root = pathlib.Path(self._dir.name) / "repo"
         (self.root / "ci").mkdir(parents=True)
-        for name in ("collect_changes.sh", "prepare_build.sh"):
+        for name in self.SCRIPTS:
             shutil.copy(CI_DIR / name, self.root / "ci" / name)
         self.bin = pathlib.Path(self._dir.name) / "bin"
         self.bin.mkdir()
@@ -120,6 +122,12 @@ class Sandbox(unittest.TestCase):
         }
         env.update(extra)
         return env
+
+    def skip_without_gnu_tools(self):
+        """publish_release.sh uses find -printf and sha256sum, which macOS does not ship."""
+        probe = subprocess.run(["find", ".", "-maxdepth", "0", "-printf", "x"], capture_output=True, cwd=self.root)
+        if probe.returncode != 0 or shutil.which("sha256sum") is None:
+            self.skipTest("needs GNU find and sha256sum")
 
     def git(self, *args):
         return subprocess.run(["git", *args], cwd=self.root, env=self.env(), check=True,
