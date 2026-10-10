@@ -230,11 +230,17 @@ func check_for_updates() -> State:
 		return _fail(tr("The update manifest is malformed."))
 
 	manifest = parsed
-	_cache_changelog()
+	return _interpret_manifest()
+
+
+## Works out what the manifest in [member manifest] means for this build.
+func _interpret_manifest() -> State:
 	var schema := int(manifest.get("schema", 0))
 	if schema > SUPPORTED_SCHEMA:
+		# Not cached: a feed this build cannot read must not replace the history it can.
 		return _finish(State.UNAVAILABLE,
 			tr("This build is too old to understand the update feed. Please reinstall from GitHub."))
+	_cache_changelog()
 
 	var platform := BuildInfo.platform_key()
 	var artifacts: Dictionary = manifest.get("artifacts", {})

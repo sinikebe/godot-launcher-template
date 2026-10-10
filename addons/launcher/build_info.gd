@@ -22,6 +22,8 @@ const DEFAULT_CONFIG_PATH := "res://launcher_config.tres"
 const STATE_PATH := "user://update_state.json"
 const CONTENT_DIR := "user://content"
 const STAGING_DIR := "user://staging"
+## How long a file this launcher left in staging may sit untouched before a launch removes it.
+const STAGING_MAX_AGE_SECONDS := 86400
 
 ## Version of the APK/EXE. A manifest advertising a higher one cannot be
 ## satisfied by a content pack -- it needs a new binary.
@@ -64,6 +66,7 @@ func _init() -> void:
 	own_changes = BuildVersion.CHANGES.duplicate()
 
 	_mount_staged_content()
+	_sweep_staging_dir()
 	# After mounting, so a content update can ship a new title or background.
 	_load_config()
 
@@ -134,6 +137,18 @@ func _mount_staged_content() -> void:
 			_sweep_content_dir("")
 			return
 
+	# The size above only catches a short file. The checksum was verified when the pack was
+	# downloaded and recorded in the state; checking it again here is what makes that record a
+	# guarantee rather than a claim. State written before the key existed, or without a value,
+	# has nothing to compare with and still mounts.
+	var expected_sha := str(state.get("sha256", "")).strip_edges().to_lower()
+	if not expected_sha.is_empty() and FileAccess.get_sha256(pack_path).to_lower() != expected_sha:
+		pack_error = "Staged content pack does not match its checksum; discarding it."
+		push_warning("[BuildInfo] " + pack_error)
+		clear_state()
+		_sweep_content_dir("")
+		return
+
 	if ProjectSettings.load_resource_pack(pack_path, true):
 		content_version = staged_version
 		active_pack_path = pack_path
@@ -162,6 +177,43 @@ func _sweep_content_dir(keep_path: String) -> void:
 		dir.remove(file)
 
 
+## Removes what a launch can prove is dead from [constant STAGING_DIR]. It cannot simply empty
+## it: a second copy of the app may be downloading into it, an APK may still be open in the
+## system installer, and the Windows helper script waits up to a minute for this process to
+## exit before it copies update-N.exe. Two rules decide:
+##  - update-N.apk / update-N.exe with N at or below this binary's own version: that update is
+##    installed, so nothing will read the file again.
+##  - anything else this launcher writes there (a .part, apply_update.ps1, an update for a
+##    newer binary) once it has sat untouched for [constant STAGING_MAX_AGE_SECONDS]. A download
+##    in progress keeps refreshing its file, and a good APK left by backing out of the
+##    installer stays long enough to be reused instead of fetched again.
+## Files this launcher does not recognise are left alone. [param now] is for tests.
+func _sweep_staging_dir(now: int = -1) -> void:
+	var dir := DirAccess.open(STAGING_DIR)
+	if dir == null:
+		return
+	if now < 0:
+		now = int(Time.get_unix_time_from_system())
+	for file in dir.get_files():
+		var update_version := _staged_update_version(file)
+		if update_version < 0 and not file.ends_with(".part") and file != "apply_update.ps1":
+			continue
+		var installed := update_version >= 0 and update_version <= binary_version
+		var modified := int(FileAccess.get_modified_time(STAGING_DIR.path_join(file)))
+		# 0 means the time could not be read: keep the file rather than guess its age.
+		var idle := modified > 0 and now - modified > STAGING_MAX_AGE_SECONDS
+		if installed or idle:
+			dir.remove(file)
+
+
+## N for a file named update-N.apk or update-N.exe, otherwise -1.
+func _staged_update_version(file: String) -> int:
+	if not file.begins_with("update-") or file.get_extension() not in ["apk", "exe"]:
+		return -1
+	var number := file.get_basename().trim_prefix("update-")
+	return int(number) if number.is_valid_int() and int(number) >= 0 else -1
+
+
 func read_state() -> Dictionary:
 	if not FileAccess.file_exists(STATE_PATH):
 		return {}
@@ -183,7 +235,7 @@ func write_state(state: Dictionary) -> bool:
 
 func clear_state() -> void:
 	if FileAccess.file_exists(STATE_PATH):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(STATE_PATH))
+		DirAccess.remove_absolute(STATE_PATH)
 
 
 ## "android", "windows", "linux", "macos", "web" or the lowercased OS name.
