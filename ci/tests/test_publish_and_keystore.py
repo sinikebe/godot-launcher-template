@@ -303,11 +303,17 @@ class SetupKeystore(PublishBase):
     def test_a_secret_that_decodes_to_nothing_is_an_error(self):
         result = self.keystore(ANDROID_KEYSTORE_BASE64="\n")
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error::ANDROID_KEYSTORE_BASE64 did not decode", result.stderr)
         self.assertFalse(self.output.exists() and "kind=" in self.output.read_text(encoding="utf-8"))
 
     def test_a_secret_that_is_not_base64_is_an_error(self):
         result = self.keystore(ANDROID_KEYSTORE_BASE64="!!!not base64!!!")
         self.assertNotEqual(result.returncode, 0)
+        # The message has to be the script's own: under set -e a failing decode used to end it
+        # silently, so the log showed only base64's complaint and no ::error:: annotation.
+        self.assertIn("::error::ANDROID_KEYSTORE_BASE64 did not decode", result.stderr)
+        self.assertNotIn("not base64", result.stdout + result.stderr, "the secret itself was echoed")
+        self.assertFalse(self.path.exists(), "a half-decoded keystore was left behind")
         self.assertFalse(self.output.exists() and "kind=" in self.output.read_text(encoding="utf-8"))
 
     def test_without_a_secret_a_debug_key_is_generated_once_and_then_reused(self):
