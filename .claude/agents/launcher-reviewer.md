@@ -74,17 +74,28 @@ they are three views of one machine and drift between them is the usual bug.
 
 ## Verifying your work
 
-There is no test suite yet, so the import-and-boot check is the safety net:
+There is a small test suite -- \`ci/tests/\` -- and the import-and-boot check is the
+safety net behind it. The tests cover the changelog formatting, the pack mount guards,
+and \`ci/make_manifest.py\`; the install-over-the-old-version path is still untested.
+
+\`\`\`bash
+python3 -B -m unittest discover -s ci/tests -v
+HOME=$(mktemp -d) ~/godot/godot --headless --path . --script ci/tests/run_gd_tests.gd
+\`\`\`
+
+Use a scratch \`HOME\`: the GDScript tests write to \`user://\` and refuse to run over
+existing launcher state. Then import and boot:
 
 ```bash
 ~/godot/godot --headless --path . --import
 ~/godot/godot --headless --path . --quit-after 180
 ```
 
-That catches parse errors, bad preloads, and broken scene references. It does
-**not** catch logic errors in version comparison, changelog formatting, or the
-mount decision — reason about those directly, and state plainly which of your
-claims you verified by running something and which you derived by reading.
+Boot alone catches parse errors, bad preloads, and broken scene references. The
+tests above cover the changelog formatting and the staged-pack mount decision, but
+not version comparison in \`check_for_updates()\`, the download and install steps, or
+anything Android-specific -- reason about those directly, and state plainly which of
+your claims you verified by running something and which you derived by reading.
 
 When Godot is not available in the environment, say so rather than implying the
 check passed.

@@ -109,6 +109,59 @@ jobs:
         # bad preload or broken scene reference fails the job here.
         run: ~/godot/godot --headless --path . --quit-after 120
 
+      - name: Run the launcher's GDScript tests
+        # The changelog formatter and the staged-pack mount guards decide what a
+        # player is shown and which content they run, and the boot check above
+        # only proves they parse. These tests drive the real autoloads. A scratch
+        # HOME keeps user:// away from anything the boot check just wrote, and the
+        # script prints its own tally because a Godot exit code is not trusted to
+        # mean "no script errors" (#71). See ci/tests/run_gd_tests.gd.
+        run: |
+          out="$(HOME="$(mktemp -d)" ~/godot/godot --headless --path . --script ci/tests/run_gd_tests.gd 2>&1)" || { echo "$out"; exit 1; }
+          echo "$out"
+          grep -qE '^[0-9]+ checks, 0 failed
+      - name: Export Android APK
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ steps.keystore.outputs.path }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: android
+        run: |
+          mkdir -p build/android
+          ~/godot/godot --headless --path . --export-release "Android" build/android/${{ steps.version.outputs.apk_name }}
+
+      - name: Export Windows executable
+        run: |
+          mkdir -p build/windows
+          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/${{ steps.version.outputs.exe_name }}
+
+      - name: Export content packs
+        # Same two packs release.yml publishes, under the same names, so this check
+        # exercises what actually ships. The desktop pack is not named for Windows:
+        # the Windows, Linux and macOS presets produce a byte-identical pack, and
+        # release.yml publishes this one file under all three desktop keys.
+        run: |
+          mkdir -p build/content
+          ~/godot/godot --headless --path . --export-pack "Android" build/content/content-android.pck
+          ~/godot/godot --headless --path . --export-pack "Windows Desktop" build/content/content-desktop.pck
+
+      - name: Check the shell scripts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=warning ci/*.sh
+
+
+      - name: Upload build for inspection
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-pr-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            build/android/${{ steps.version.outputs.apk_name }}
+            build/windows/${{ steps.version.outputs.exe_name }}
+            build/content/*.pck
+          if-no-files-found: error
+          retention-days: 7
+ <<<"$out"
+
       - name: Export Android APK
         env:
           GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ steps.keystore.outputs.path }}
