@@ -83,8 +83,11 @@ class Sandbox(unittest.TestCase):
     """A scratch repo with the release scripts in ci/."""
 
     def setUp(self):
-        if shutil.which("git") is None or shutil.which("bash") is None:
-            self.skipTest("needs git and bash")
+        if shutil.which("git") is None or shutil.which("bash") is None or shutil.which("python3") is None:
+            self.skipTest("needs git, bash and python3")
+        bash_major = subprocess.run(["bash", "-c", "echo $BASH_VERSINFO"], capture_output=True, text=True).stdout.strip()
+        if not bash_major.isdigit() or int(bash_major) < 4:
+            self.skipTest("the scripts need bash 4 (mapfile); this is bash %s" % (bash_major or "?"))
         self._dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._dir.cleanup)
         self.root = pathlib.Path(self._dir.name) / "repo"
@@ -173,7 +176,8 @@ class CollectChanges(Sandbox):
         self.commit("a")
         self.git("tag", "v0.1.0+3")
         self.commit("b")
-        for tag in ("branch-dev", "v1+abc", "v1+2+3", "vfoo", "v0.9.9", "rc+99", "nightly+100"):
+        # "v1+9+3" and "v1+12abc" would win a numeric sort if the filter let them through
+        for tag in ("branch-dev", "v1+abc", "v1+2+3", "vfoo", "v0.9.9", "rc+99", "nightly+100", "v1+9+3", "v1+12abc"):
             self.git("tag", tag)
         self.commit("c")
         result = self.run_script("collect_changes.sh")
@@ -374,6 +378,24 @@ class PrepareBuild(PrepareHelpers):
         self.assertEqual(got["game_slug"], "launcher-demo")
         self.assertEqual(got["binary_version"], "7")
         self.assertEqual(got["tag"], "v0.1.0+2")
+        built_at = got.pop("built_at")
+        self.assertRegex(built_at, r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertEqual(got, {
+            "game_name": "Launcher Demo", "game_slug": "launcher-demo", "apk_name": "launcher-demo.apk",
+            "exe_name": "LauncherDemo.exe", "version_name": "0.1.0", "binary_version": "7",
+            "content_version": "2", "commit": self.git("rev-parse", "--short=8", "HEAD"),
+            "release_branch": "", "tag": "v0.1.0+2"})
+
+    def test_stdout_and_github_output_agree_and_the_file_is_appended_to(self):
+        target = pathlib.Path(self._dir.name) / "gh_output"
+        target.write_text("earlier=step\n", encoding="utf-8")
+        out = self.prepare(GITHUB_OUTPUT=str(target), RELEASE_BRANCH="dev")
+        lines = target.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[0], "earlier=step")
+        got = dict(line.split("=", 1) for line in lines[1:])
+        self.assertEqual(got.pop("game_slug"), "launcher-demo")
+        self.assertEqual(got, out)
+        self.assertEqual((got["release_branch"], got["tag"]), ("dev", "branch-dev"))
 
 
 class BranchBuild(PrepareHelpers):
@@ -477,6 +499,38 @@ class BranchBuild(PrepareHelpers):
         result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("0 [application] section headers", result.stderr)
+
+    def test_a_branch_build_with_no_export_presets_still_gets_its_own_user_dir(self):
+        self.git("rm", "-q", "-f", "export_presets.cfg")
+        self.git("commit", "-q", "-m", "drop presets")
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.root / "export_presets.cfg").exists())
+        self.assertIn('config/custom_user_dir_name="launcher-demo-dev"', self.read("project.godot"))
+
+    def test_a_desktop_only_project_gets_the_labels_and_needs_no_package_id(self):
+        desktop = PRESETS[PRESETS.index("[preset.1]"):].replace("preset.1", "preset.0")
+        self.commit("desktop only", {"export_presets.cfg": desktop})
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        presets = self.read("export_presets.cfg")
+        self.assertIn('application/product_name="Game (dev)"', presets)
+        self.assertNotIn("package/unique_name", presets)
+
+    def test_more_names_that_cannot_be_a_tag_and_a_url_segment(self):
+        for bad in ("_x", "a~b", "a:b", "a?b", "a*b", "a[b", "a\\b"):
+            with self.subTest(branch=bad):
+                result = self.run_script("prepare_build.sh", RELEASE_BRANCH=bad)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("::error::RELEASE_BRANCH", result.stderr)
+
+    def test_awkward_but_valid_names_map_cleanly(self):
+        for branch, segment, slug in (("a--b", "a_b", "a-b"), ("dev-", "dev", "dev"), ("block", "block", "block")):
+            with self.subTest(branch=branch):
+                self.git("checkout", "-q", "--", "export_presets.cfg", "project.godot")
+                self.assertEqual(self.prepare(RELEASE_BRANCH=branch)["tag"], "branch-" + branch)
+                self.assertIn('package/unique_name="com.example.game.%s"' % segment, self.read("export_presets.cfg"))
+                self.assertIn('config/custom_user_dir_name="launcher-demo-%s"' % slug, self.read("project.godot"))
 
     def test_a_normal_build_leaves_identity_and_user_dir_alone(self):
         self.prepare()
