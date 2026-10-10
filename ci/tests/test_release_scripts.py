@@ -308,6 +308,9 @@ class PrepareHelpers(Sandbox):
         self.assertIsNotNone(match, name)
         return match.group(1)
 
+    def snapshot(self):
+        return {name: self.read(name) for name in ("export_presets.cfg", "project.godot", "build_version.gd")}
+
     def write_notes(self, text):
         path = self.root / "build/notes"
         path.mkdir(parents=True, exist_ok=True)
@@ -384,9 +387,6 @@ class PrepareBuild(PrepareHelpers):
         self.assertEqual(self.prepare()["game_name"], "Game")
 
     # -- version_name -----------------------------------------------------
-    def snapshot(self):
-        return {name: self.read(name) for name in ("export_presets.cfg", "project.godot", "build_version.gd")}
-
     def test_plain_version_names_are_accepted_and_written_everywhere(self):
         for name in ("1.2.0", "1.0-beta", "2024.10", "rc.1", "0.1.0_x", "10", "v1"):
             with self.subTest(name=name):
@@ -568,6 +568,50 @@ class BranchBuild(PrepareHelpers):
         first = self.read("export_presets.cfg")
         self.prepare(RELEASE_BRANCH="dev")
         self.assertEqual(self.read("export_presets.cfg"), first)
+
+    def test_preset_numbers_of_two_digits_are_handled_like_any_other(self):
+        # Presets 1 and 10 must not be confused, and 10 and above must be branded at all.
+        many = PRESETS
+        for n in (10, 11):
+            many += SECOND_ANDROID.replace("preset.2", "preset.%d" % n).replace("com.example.game2", "com.example.game%d" % n)
+        self.commit("many presets", {"export_presets.cfg": many})
+        self.prepare(RELEASE_BRANCH="dev")
+        presets = self.read("export_presets.cfg")
+        self.assertEqual(options_of(presets, 0)["package/unique_name"], "com.example.game.dev")
+        self.assertEqual(options_of(presets, 10)["package/unique_name"], "com.example.game10.dev")
+        self.assertEqual(options_of(presets, 11)["package/unique_name"], "com.example.game11.dev")
+
+    def test_an_android_preset_numbered_ten_without_an_id_is_refused_too(self):
+        bare = SECOND_ANDROID.replace("preset.2", "preset.10").replace('package/unique_name="com.example.game2"\n', "")
+        self.commit("preset 10 without an id", {"export_presets.cfg": PRESETS + bare})
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("preset.10 has no package/unique_name", result.stderr)
+
+    def test_a_line_starting_with_a_bracket_inside_a_value_does_not_end_the_section(self):
+        # The old pattern stopped at any "[" line: the label after it was dropped silently.
+        tricky = PRESETS.replace('package/name="Game"\n', 'notes="first\n[not a header]\nlast"\npackage/name="Game"\n')
+        self.assertIn("[not a header]", tricky)
+        self.commit("multi-line value", {"export_presets.cfg": tricky})
+        self.prepare(RELEASE_BRANCH="dev")
+        presets = self.read("export_presets.cfg")
+        self.assertIn('package/name="Game (dev)"', presets)
+        self.assertIn('package/unique_name="com.example.game.dev"', presets)
+
+    def test_a_branch_build_also_refuses_a_bad_version_name(self):
+        self.commit("bad name", {"version.json": json.dumps(dict(VERSION_JSON, version_name="1.0 & beta"))})
+        before = self.snapshot()
+        result = self.run_script("prepare_build.sh", RELEASE_BRANCH="dev")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error::version_name", result.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_presets_that_are_not_committed_yet_are_branded_from_the_working_copy(self):
+        (self.root / "export_presets.cfg").write_text(PRESETS.replace("com.example.game", "com.example.fresh"), encoding="utf-8")
+        self.git("rm", "-q", "--cached", "export_presets.cfg")
+        self.git("commit", "-q", "-m", "untrack presets")
+        self.prepare(RELEASE_BRANCH="dev")
+        self.assertEqual(options_of(self.read("export_presets.cfg"), 0)["package/unique_name"], "com.example.fresh.dev")
 
     def test_every_android_preset_needs_its_own_package_id(self):
         # One preset with an id must not cover another without: that one would build an

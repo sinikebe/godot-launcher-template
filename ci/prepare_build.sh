@@ -254,8 +254,11 @@ def set_key(body: str, key: str, value: str) -> tuple[str, int]:
 # game can have an APK preset and an AAB preset, or a demo and a full edition. Reading the
 # whole file into one dictionary let the last preset's value overwrite every other's, and
 # then wrote that one value into all of them.
-OPTIONS = re.compile(r"^(\[preset\.(\d+)\.options\][^\n]*\n)(.*?)(?=^\[|\Z)", re.M | re.S)
-PRESET = re.compile(r"^\[preset\.(\d+)\][^\n]*\n(.*?)(?=^\[|\Z)", re.M | re.S)
+# A section ends at the next preset header, not at any line that starts with "[": a value
+# can span lines, and a line inside it that begins with "[" would otherwise cut the section
+# short and silently skip the keys after it.
+OPTIONS = re.compile(r"^(\[preset\.(\d+)\.options\][^\n]*\n)(.*?)(?=^\[preset\.\d+(?:\.options)?\]|\Z)", re.M | re.S)
+PRESET = re.compile(r"^\[preset\.(\d+)\][^\n]*\n(.*?)(?=^\[preset\.\d+(?:\.options)?\]|\Z)", re.M | re.S)
 
 committed_options = {number: body for _header, number, body in OPTIONS.findall(committed_text("export_presets.cfg"))}
 android = {number for number, body in PRESET.findall(text) if re.search(r'^platform="Android"$', body, flags=re.M)}
