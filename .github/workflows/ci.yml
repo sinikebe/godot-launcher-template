@@ -109,6 +109,21 @@ jobs:
         # bad preload or broken scene reference fails the job here.
         run: ~/godot/godot --headless --path . --quit-after 120
 
+      - name: Run the launcher's GDScript tests
+        # The changelog formatter and the staged-pack mount guards decide what a
+        # player is shown and which content they run, and the boot check above
+        # only proves they parse. These tests drive the real autoloads. A scratch
+        # HOME keeps user:// away from anything the boot check just wrote. The
+        # script prints its own tally because a Godot exit code is not trusted to
+        # mean "no script errors" (#71), so the step also fails on any SCRIPT
+        # ERROR line and on a tally that is missing or not zero-failed. See
+        # ci/tests/run_gd_tests.gd.
+        run: |
+          out="$(HOME="$(mktemp -d)" ~/godot/godot --headless --path . --script ci/tests/run_gd_tests.gd 2>&1)" || { echo "$out"; exit 1; }
+          echo "$out"
+          if grep -q 'SCRIPT ERROR' <<<"$out"; then echo "::error::a SCRIPT ERROR was logged"; exit 1; fi
+          grep -qE '^[0-9]+ checks, 0 failed$' <<<"$out"
+
       - name: Export Android APK
         env:
           GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ steps.keystore.outputs.path }}
