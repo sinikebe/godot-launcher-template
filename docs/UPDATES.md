@@ -233,18 +233,23 @@ the bar off in a web build's config (`show_update_bar = false`,
 
 `_apply_binary()` swaps the APK on Android and the `.exe` on Windows. There is no
 equivalent for Linux or macOS, so those platforms carry no `binary` entry in the
-manifest. A release that raises `binary_version` therefore ends on `UNAVAILABLE`
-there, with "Version X needs a new app build, but none is published for linux yet"
-in the status bar and the button back to "Check for updates".
+manifest, and nothing in CI will ever publish one.
 
-It does **not** open the release page. `_apply_binary()` has a `shell_open`
-fallback for exactly this case, but it is unreachable from this pipeline:
-`apply_pending_update()` returns immediately while `pending_artifact` is empty, and
-only a manifest entry for this platform ever fills it. Measured on Linux against a
-release raising `binary_version` — `pending_artifact` empty, and
-`apply_pending_update()` a no-op that leaves the state and the message unchanged.
-Giving the player a link would mean either publishing a `binary:linux` the app
-cannot apply, or teaching the `UNAVAILABLE` path to offer the release page.
+A release that raises `binary_version` therefore ends on `UNAVAILABLE` there, but the
+app does not pretend CI is behind. `UpdateService.manual_download_needed` is set,
+the status bar reads "Version X needs a new build for linux. Open the releases page
+to download it.", and the button reads **"Open releases page"** and opens it
+(`UpdateService.open_releases_page()`). If the config cannot name a release page,
+the button falls back to re-checking.
+
+Which platforms get this treatment is `UpdateService.MANUAL_BINARY_PLATFORMS`. On Android
+and Windows a missing `binary` entry still means CI has not built it yet, and keeps the
+"none is published for <platform> yet" wording.
+
+`apply_pending_update()` still returns immediately while `pending_artifact` is empty, and the
+`shell_open` fallback at the end of `_apply_binary()` stays reachable only when a manifest
+carries an entry for the platform: that guard protects the "no artifact, no
+install" invariant, so the release-page path does not go through it.
 
 Most releases do not need a new binary: `binary_version` is bumped by hand and
 only for a change a content pack cannot deliver, such as an engine upgrade, a new
