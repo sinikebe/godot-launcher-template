@@ -4,7 +4,9 @@ A mistake here ships as a broken or misleading update, and nothing else in CI
 runs this script before a release does. Standard library only (unittest), so it
 needs no install step:
 
-    python3 -m unittest discover -s ci/tests -v
+    python3 -B -m unittest discover -s ci/tests -v
+
+-B matters: importing the script otherwise leaves a __pycache__ next to it.
 """
 
 from __future__ import annotations
@@ -103,6 +105,22 @@ class BuildChangelog(unittest.TestCase):
         self.assertEqual([e["content_version"] for e in log], [3, 2])
 
 
+class Contract(unittest.TestCase):
+    """Values the app and the docs rely on, written down rather than read back."""
+
+    def test_pinned_constants(self):
+        self.assertEqual(mm.SCHEMA_VERSION, 1)  # the app refuses a schema above its own
+        self.assertEqual(mm.MAX_CHANGELOG_ENTRIES, 20)
+        self.assertEqual(mm.MAX_CHANGES_PER_ENTRY, 20)
+        self.assertEqual(mm.VALID_KINDS, ("binary", "content"))
+
+    def test_entry_carries_every_field_the_app_reads(self):
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stderr(io.StringIO()):
+            log = mm.build_changelog(args(pathlib.Path(d), changes=["a"], binary_version=4), "T")
+        self.assertEqual(log[0], {"content_version": 3, "binary_version": 4,
+                                  "version_name": "1.0.3", "released_at": "T", "changes": ["a"]})
+
+
 class ParseArtifact(unittest.TestCase):
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
@@ -119,6 +137,10 @@ class ParseArtifact(unittest.TestCase):
         odd = pathlib.Path(self._dir.name) / "a:b.pck"
         odd.write_bytes(b"x")
         self.assertEqual(mm.parse_artifact("content:android:%s" % odd)[2], odd)
+
+    def test_a_directory_is_not_an_artifact(self):
+        with self.assertRaises(SystemExit):
+            mm.parse_artifact("content:android:%s" % self.file.parent)
 
     def test_rejects_malformed_unknown_kind_and_missing_file(self):
         for bad in ("nonsense", "binary:android", "weird:android:%s" % self.file,
@@ -171,6 +193,49 @@ class EndToEnd(unittest.TestCase):
         self.assertNotIn("latest", binary["url"])
         self.assertEqual(m["artifacts"]["content"]["android"]["sha256"],
                          hashlib.sha256(b"pack bytes").hexdigest())
+
+    def test_every_platform_release_yml_passes_is_kept(self):
+        # release.yml hands over android, windows, linux and macos; one platform
+        # must never overwrite another, and desktop packs share a file name.
+        files = {}
+        for name in ("a.apk", "g.exe", "content-android.pck", "content-desktop.pck"):
+            f = self.tmp / name
+            f.write_bytes(name.encode())
+            files[name] = f
+        m = self.run_main(
+            "--artifact", "binary:android:%s" % files["a.apk"],
+            "--artifact", "binary:windows:%s" % files["g.exe"],
+            "--artifact", "content:android:%s" % files["content-android.pck"],
+            "--artifact", "content:windows:%s" % files["content-desktop.pck"],
+            "--artifact", "content:linux:%s" % files["content-desktop.pck"],
+            "--artifact", "content:macos:%s" % files["content-desktop.pck"])
+        self.assertEqual(sorted(m["artifacts"]["binary"]), ["android", "windows"])
+        self.assertEqual(sorted(m["artifacts"]["content"]), ["android", "linux", "macos", "windows"])
+        self.assertEqual(m["artifacts"]["binary"]["windows"]["file"], "g.exe")
+        self.assertEqual(m["artifacts"]["content"]["linux"]["file"], "content-desktop.pck")
+        self.assertEqual(m["artifacts"]["binary"]["android"]["sha256"],
+                         hashlib.sha256(b"a.apk").hexdigest())
+
+    def test_large_file_is_hashed_across_chunks(self):
+        # sha256_of reads 1 MiB at a time; a real APK is tens of MiB.
+        big = self.tmp / "big.apk"
+        data = bytes(range(256)) * (3 * 1024 * 1024 // 256) + b"tail"
+        big.write_bytes(data)
+        m = self.run_main("--artifact", "binary:android:%s" % big)
+        got = m["artifacts"]["binary"]["android"]
+        self.assertEqual(got["sha256"], hashlib.sha256(data).hexdigest())
+        self.assertEqual(got["size"], len(data))
+
+    def test_top_level_fields_are_passed_through(self):
+        m = self.run_main()
+        self.assertEqual(m["version_name"], "0.1.0")
+        self.assertEqual(m["commit"], "abc")
+        self.assertEqual(m["release_tag"], "v0.1.0+7")
+        self.assertEqual(m["changelog"][0]["version_name"], "0.1.0")
+        self.assertEqual(m["changelog"][0]["binary_version"], 2)
+        # one timestamp for the manifest and its own changelog entry
+        self.assertEqual(m["changelog"][0]["released_at"], m["released_at"])
+        self.assertNotIn(".", m["released_at"])  # whole seconds, as the app parses it
 
     def test_no_artifacts_still_lists_both_kinds_empty(self):
         m = self.run_main()
