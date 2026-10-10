@@ -54,7 +54,7 @@ enum State {
 	RESTART_REQUIRED, ## Content staged; relaunch to finish.
 	INSTALL_HANDOFF,  ## APK handed to the system installer.
 	NEEDS_PERMISSION, ## APK downloaded and verified, but Android will not let us install it yet.
-	UNAVAILABLE,      ## No build published for this platform.
+	UNAVAILABLE,      ## No build published for this platform (see manual_download_needed).
 	FAILED,           ## Check or download failed; see last_error.
 }
 

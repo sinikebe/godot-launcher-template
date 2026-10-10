@@ -242,6 +242,10 @@ to download it.", and the button reads **"Open releases page"** and opens it
 (`UpdateService.open_releases_page()`). If the config cannot name a release page,
 the button falls back to re-checking.
 
+The releases page only helps if there is something on it: CI publishes no Linux or
+macOS binary, so a game that ships on those platforms has to attach its own build to
+the release by hand.
+
 Which platforms get this treatment is `UpdateService.MANUAL_BINARY_PLATFORMS`. On Android
 and Windows a missing `binary` entry still means CI has not built it yet, and keeps the
 "none is published for <platform> yet" wording.
