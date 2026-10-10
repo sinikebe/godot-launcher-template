@@ -76,7 +76,8 @@ they are three views of one machine and drift between them is the usual bug.
 
 There is a small test suite -- \`ci/tests/\` -- and the import-and-boot check is the
 safety net behind it. The tests cover the changelog formatting, the pack mount guards,
-and \`ci/make_manifest.py\`; the install-over-the-old-version path is still untested.
+\`ci/make_manifest.py\`, and the release-prep scripts \`ci/collect_changes.sh\` and
+\`ci/prepare_build.sh\`; the install-over-the-old-version path is still untested.
 
 \`\`\`bash
 python3 -B -m unittest discover -s ci/tests -v
