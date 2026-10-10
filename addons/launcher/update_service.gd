@@ -40,6 +40,8 @@ const MANIFEST_TIMEOUT := 30.0
 ## on the peer rather than the clock in threaded mode. See issue #33.
 const DOWNLOAD_TIMEOUT := 1800.0
 const SUPPORTED_SCHEMA := 1
+## Platforms with no automatic binary update: no CI export, no in-place swap.
+const MANUAL_BINARY_PLATFORMS: Array[String] = ["linux", "macos"]
 
 enum State {
 	IDLE,             ## Nothing has been checked yet this session.
@@ -52,7 +54,7 @@ enum State {
 	RESTART_REQUIRED, ## Content staged; relaunch to finish.
 	INSTALL_HANDOFF,  ## APK handed to the system installer.
 	NEEDS_PERMISSION, ## APK downloaded and verified, but Android will not let us install it yet.
-	UNAVAILABLE,      ## No build published for this platform.
+	UNAVAILABLE,      ## No build published for this platform (see manual_download_needed).
 	FAILED,           ## Check or download failed; see last_error.
 }
 
@@ -69,6 +71,11 @@ var manifest: Dictionary = {}
 var pending_kind: String = ""      ## "binary" or "content"
 var pending_artifact: Dictionary = {}
 var pending_version: int = 0
+
+## True when the last check found a release that needs a new binary on a platform
+## that can neither be given one by CI nor swap it in place (Linux, macOS). The
+## only way forward there is the release page; see [method open_releases_page].
+var manual_download_needed: bool = false
 
 var _busy := false
 var _active_request: HTTPRequest = null
@@ -181,6 +188,7 @@ static func _accepts(object: Object, method: String, argc: int) -> bool:
 func check_for_updates() -> State:
 	if _busy:
 		return state
+	manual_download_needed = false
 	# Reports a bad branch stamp as well as a missing update_repo. updates_enabled()
 	# stays keyed on update_repo alone, so a misconfigured branch surfaces as an
 	# error the player can see rather than hiding the update bar entirely.
@@ -240,6 +248,14 @@ func check_for_updates() -> State:
 		if binary_artifact.is_empty():
 			# tr() before %, not after: auto-translation only ever sees the finished
 			# string, which matches no msgid once a version number is in it.
+			if platform in MANUAL_BINARY_PLATFORMS:
+				# Nothing is "not published yet" here: CI never builds this platform
+				# and the app cannot swap itself in place, so send the player to the
+				# release page rather than imply the build is merely late.
+				manual_download_needed = true
+				return _finish(State.UNAVAILABLE,
+					tr("Version %s needs a new build for %s. Open the releases page to download it.") % [
+						manifest.get("version_name", "?"), platform])
 			return _finish(State.UNAVAILABLE,
 				tr("Version %s needs a new app build, but none is published for %s yet.") % [
 					manifest.get("version_name", "?"), platform])
@@ -276,6 +292,16 @@ func _artifact_for(artifacts: Dictionary, kind: String, platform: String) -> Dic
 # ---------------------------------------------------------------------------
 # Applying
 # ---------------------------------------------------------------------------
+
+## Opens the release page for this build's stream. Returns false when the config
+## cannot name one, so the caller can say so rather than do nothing.
+func open_releases_page() -> bool:
+	var url := _releases_url(_release_branch())
+	if url.is_empty():
+		return false
+	OS.shell_open(url)
+	return true
+
 
 ## Downloads and applies whatever the last check turned up.
 func apply_pending_update() -> State:

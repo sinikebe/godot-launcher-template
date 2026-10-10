@@ -432,6 +432,9 @@ func _on_update_pressed() -> void:
 			await UpdateService.retry_install()
 		UpdateService.State.RESTART_REQUIRED:
 			_prompt_restart()
+		UpdateService.State.UNAVAILABLE when UpdateService.manual_download_needed:
+			if not UpdateService.open_releases_page():
+				await UpdateService.check_for_updates()
 		_:
 			await UpdateService.check_for_updates()
 
@@ -496,6 +499,8 @@ func _refresh_update_ui() -> void:
 			_update_button.text = tr("Checking…")
 		UpdateService.State.DOWNLOADING, UpdateService.State.VERIFYING:
 			_update_button.text = tr("Working…")
+		UpdateService.State.UNAVAILABLE when UpdateService.manual_download_needed:
+			_update_button.text = tr("Open releases page")
 		_:
 			_update_button.text = tr("Check for updates")
 
