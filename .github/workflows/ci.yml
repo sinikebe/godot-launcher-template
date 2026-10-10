@@ -39,6 +39,12 @@ jobs:
         # sees. Regenerate and diff rather than trust.
         run: python3 ci/make_pot.py --check
 
+      - name: Run the unit tests
+        # ci/make_manifest.py builds what every player's app reads, and nothing
+        # else here runs it before a release does. Standard library only, so no
+        # install step; see ci/tests/.
+        run: python3 -B -m unittest discover -s ci/tests -v
+
       - name: Check launcher code still runs on older binaries
         # A content pack carries this launcher to every binary the game ever
         # shipped, but BuildInfo and LauncherConfig stay at the binary's version.
