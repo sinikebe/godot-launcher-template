@@ -15,3 +15,7 @@
 export_presets.local.cfg
 .vscode/
 .idea/
+
+# Python bytecode (ci/*.py and ci/tests/ are run directly)
+__pycache__/
+*.pyc
