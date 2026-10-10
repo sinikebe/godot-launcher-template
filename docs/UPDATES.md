@@ -271,7 +271,12 @@ The release workflow uses, in order of preference:
    key so the signature stays stable between runs. This exists so the pipeline
    produces an installable APK before anyone configures signing. Actions caches
    are evicted after 7 days without a hit; if that happens a new key is generated
-   and already-installed copies can no longer be updated in place.
+   and already-installed copies can no longer be updated in place. Its password
+   is the public string `android`, and a cache on the default branch can be restored by
+   workflows that run for pull requests from forks, so treat that key as readable
+   by anyone who can open a pull request. That is acceptable for a throwaway
+   fallback, but not for an app you cannot afford to have an attacker update in
+   place: set a release keystore before you publish one.
 
 ### Setting up a release keystore
 

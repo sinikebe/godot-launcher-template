@@ -25,12 +25,15 @@ emit() {
 
 if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
 	# Fed through stdin rather than an argument so it never reaches the process table.
-	printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
-	chmod 600 "$KEYSTORE_PATH"
-	if [[ ! -s "$KEYSTORE_PATH" ]]; then
+	# A failing decode is tested here rather than left to set -e, which would stop the script
+	# before the message below could print and leave the half-written file behind.
+	if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH" 2> /dev/null \
+		|| [[ ! -s "$KEYSTORE_PATH" ]]; then
+		rm -f "$KEYSTORE_PATH"
 		echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a usable keystore." >&2
 		exit 1
 	fi
+	chmod 600 "$KEYSTORE_PATH"
 	emit "kind=release"
 	emit "path=${KEYSTORE_PATH}"
 	echo "Signing with the release keystore from repository secrets."
