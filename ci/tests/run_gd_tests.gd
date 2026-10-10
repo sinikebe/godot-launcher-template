@@ -35,6 +35,9 @@ func eq(got: Variant, want: Variant, what: String) -> void:
 
 
 func _initialize() -> void:
+	# Expected strings are English. A game that ships a translation of the launcher
+	# must not make these fail on a machine set to another language.
+	TranslationServer.set_locale("en")
 	_us = root.get_node_or_null("UpdateService")
 	_bi = root.get_node_or_null("BuildInfo")
 	if _us == null or _bi == null:
@@ -53,7 +56,9 @@ func _initialize() -> void:
 	_test_format_entries()
 	_test_full_changelog()
 	_test_pending_and_has_notes()
+	_test_more_changelog()
 	_test_mount_staged_content()
+	_test_mount_edge_cases()
 	_cleanup()
 
 	print("%d checks, %d failed" % [_checks, _fails])
@@ -232,6 +237,39 @@ func _test_pending_and_has_notes() -> void:
 	check(not "<- installed" in pending, "pending_notes_text marks nothing installed")
 
 
+
+func _test_more_changelog() -> void:
+	# a mounted pack: the live content version is ahead of the binary's own
+	_reset_build(5)
+	_bi.content_version = 7
+	_us.manifest = {"changelog": [_entry(8, ["new"]), _entry(7, ["live"]), _entry(6, ["mid"]), _entry(5, ["old"])]}
+	eq(_versions(_us.pending_changelog()), [8], "pending is measured from the live content version, not the binary's")
+	var h: String = _us.history_text()
+	check("build 7     <- installed" in h, "the installed mark follows the live content version")
+	check(not "build 5     <- installed" in h, "...and not the binary's")
+
+	# entries that are not what the pipeline writes
+	_reset_build(2)
+	_us.manifest = {"changelog": ["junk", 7, null, {"changes": ["no version"]}, _entry(3, ["ok"])]}
+	eq(_versions(_us.pending_changelog()), [3], "pending skips junk and an entry with no content_version")
+	eq(_us._format_entries([{"changes": ["a"]}], 10, false), "v?  ·  build 0\n  •  a",
+			"an entry with no version or name still renders, as build 0")
+	_us.manifest = {"changelog": [{"changes": ["a"]}, _entry(0, ["b"])]}
+	eq(_us.full_changelog().size(), 2, "an entry with no content_version is not the same as version 0")
+	_us.manifest = {"changelog": [_entry(4, []), _entry(3, ["x"]), _entry(2, [])]}
+	check(_us.has_notes(), "has_notes looks past the first and last entries")
+
+	# the cache written by a check is what an offline launch reads
+	_reset_build(2)
+	_us.manifest = {"changelog": [_entry(6, ["a"]), _entry(5, ["b"])]}
+	_us._cache_changelog()
+	_us.manifest = {}
+	eq(_versions(_us.full_changelog()), [6, 5], "the last check's changelog is cached and read back with no network")
+	_us.manifest = {"changelog": []}
+	_us._cache_changelog()
+	_us.manifest = {}
+	eq(_versions(_us.full_changelog()), [6, 5], "an empty changelog never overwrites a good cache")
+
 # ---------------------------------------------------------------------------
 # BuildInfo._mount_staged_content
 # ---------------------------------------------------------------------------
@@ -249,6 +287,11 @@ func _make_pack(version: int) -> Dictionary:
 	var packer := PCKPacker.new()
 	packer.pck_start(path)
 	packer.add_file(MARKER, ProjectSettings.globalize_path(src))
+	var over := "user://override-%d.json" % version
+	var of := FileAccess.open(over, FileAccess.WRITE)
+	of.store_string("pack %d" % version)
+	of.close()
+	packer.add_file("res://version.json", ProjectSettings.globalize_path(over))
 	packer.flush()
 	return {"path": path, "size": FileAccess.open(path, FileAccess.READ).get_length()}
 
@@ -347,6 +390,8 @@ func _test_mount_staged_content() -> void:
 	eq(_bi.base_content_version, 5, "good pack: the binary's own version is untouched")
 	eq(_bi.active_pack_path, good["path"], "good pack: its path is recorded")
 	check(FileAccess.file_exists(MARKER), "good pack: its files are visible under res://")
+	var vj := FileAccess.open("res://version.json", FileAccess.READ)
+	eq(vj.get_as_text() if vj != null else "", "pack 7", "good pack: its file replaces one the binary already ships")
 	check(not FileAccess.file_exists(other["path"]), "good pack: other packs are swept")
 	check(FileAccess.file_exists(good["path"]), "good pack: the mounted pack is kept")
 	check(not _bi.read_state().is_empty(), "good pack: state stays so the next launch mounts it again")
@@ -358,10 +403,111 @@ func _test_mount_staged_content() -> void:
 	eq(_bi.content_version, 11, "state without a size key: still mounts")
 
 
+func _write_text(path: String, text: String) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(text)
+	f.close()
+
+
+## Stages a real pack with a hand-built state: [param changes] are merged over the
+## usual keys and every key in [param drop] is removed.
+func _stage_state(version: int, changes := {}, drop := []) -> Dictionary:
+	var pack := _make_pack(version)
+	var state := {"content_version": version, "pack_path": pack["path"], "branch": "", "size": pack["size"]}
+	state.merge(changes, true)
+	for key: String in drop:
+		state.erase(key)
+	_bi.write_state(state)
+	return pack
+
+
+func _test_mount_edge_cases() -> void:
+	# The order of the guards decides which reason a player-facing log gives, and
+	# which of two bad states wins: branch, then rollback, then size.
+	_wipe()
+	_stage(3, "dev")
+	_mount_from_clean(5, "")
+	check("different build stream" in _bi.pack_error, "order: stale AND another stream is reported as the stream (branch first)")
+	_wipe()
+	_stage(3, "", true, -1)
+	_mount_from_clean(5)
+	eq(_bi.pack_error, "", "order: stale AND truncated is just stale (rollback before size)")
+	_wipe()
+	_stage(7, "dev", true, -1)
+	_mount_from_clean(5, "")
+	check("different build stream" in _bi.pack_error, "order: truncated AND another stream is reported as the stream (branch before size)")
+	_wipe()
+	_stage(7, "DEV")
+	_mount_from_clean(5, "dev")
+	eq(_bi.content_version, 5, "branch names are compared exactly, case included")
+
+	# a discarded stale pack is not an error
+	_wipe()
+	_stage(5)
+	_mount_from_clean(5)
+	eq(_bi.pack_error, "", "stale pack: discarded quietly, no pack_error")
+
+	# every way out of the mount clears the whole content dir, not just .pck files
+	_wipe()
+	_write_text(_bi.CONTENT_DIR.path_join("stray.txt"), "x")
+	_stage(3)
+	_mount_from_clean(5)
+	check(not FileAccess.file_exists(_bi.CONTENT_DIR.path_join("stray.txt")), "stale: anything in the content dir is swept")
+	_wipe()
+	var other := _stage(7, "dev")
+	_mount_from_clean(5, "")
+	check(not FileAccess.file_exists(other["path"]), "another stream: the pack is swept")
+	_wipe()
+	var short := _stage(7, "", true, -1)
+	_mount_from_clean(5)
+	check(not FileAccess.file_exists(short["path"]), "truncated: the pack is swept")
+	_wipe()
+	var orphan := _make_pack(9)  # a pack with no state at all
+	_mount_from_clean(5)
+	check(not FileAccess.file_exists(orphan["path"]), "no state: an orphan pack is swept")
+	_wipe()
+	DirAccess.make_dir_recursive_absolute(_bi.CONTENT_DIR)
+	var junk: String = _bi.CONTENT_DIR.path_join("content-8.pck")
+	_write_text(junk, "this is not a pack")
+	_bi.write_state({"content_version": 8, "pack_path": junk, "branch": "", "size": 18})
+	_mount_from_clean(5)
+	check("failed to mount" in _bi.pack_error, "garbage pack: pack_error says the mount failed")
+	check(not FileAccess.file_exists(junk), "garbage pack: it is swept")
+
+	# state as written by older builds, or damaged
+	_wipe()
+	_stage_state(7, {}, ["branch"])
+	_mount_from_clean(5, "")
+	eq(_bi.content_version, 7, "state with no branch key (older builds) is a release pack and mounts on a release build")
+	_wipe()
+	_stage_state(7, {}, ["branch"])
+	_mount_from_clean(5, "dev")
+	eq(_bi.content_version, 5, "...and is refused by a branch build")
+	_wipe()
+	_stage_state(7, {}, ["content_version"])
+	_mount_from_clean(5)
+	eq(_bi.content_version, 5, "state with no content_version never mounts (it reads as 0, which is stale)")
+	_wipe()
+	_stage_state(7, {"size": 0})
+	_mount_from_clean(5)
+	check("truncated" in _bi.pack_error, "a recorded size of 0 is still a size: a non-empty pack does not match it")
+	_wipe()
+	_stage_state(7, {"pack_path": ""})
+	_mount_from_clean(5)
+	eq(_bi.content_version, 5, "empty pack_path: nothing to mount")
+	check(_bi.read_state().is_empty(), "empty pack_path: state cleared")
+
+	_write_text(_bi.STATE_PATH, "[1, 2]")
+	eq(_bi.read_state(), {}, "read_state: valid JSON that is not an object reads as empty")
+	_write_text(_bi.STATE_PATH, "{not json")
+	eq(_bi.read_state(), {}, "read_state: invalid JSON reads as empty")
+	_bi.clear_state()
+
+
 func _cleanup() -> void:
 	_wipe()
 	var dir := DirAccess.open("user://")
 	if dir != null:
 		for file in dir.get_files():
-			if file.begins_with("marker-") or file == "changelog.json":
+			if file.begins_with("marker-") or file.begins_with("override-") or file == "changelog.json":
 				dir.remove(file)
