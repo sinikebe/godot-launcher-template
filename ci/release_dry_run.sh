@@ -28,6 +28,13 @@
 # What it cannot tell is whether GitHub accepts the upload. The release workflow
 # stays the only thing that publishes.
 #
+# Limits, for a game built from the template: the steps are found by name and the release
+# directory must be build/release; each runs under bash -euo pipefail (GitHub gives bash -e)
+# with the steps.version.outputs values as environment variables; a step's own env:,
+# working-directory:, shell: and if: are ignored; "run: >" blocks and expressions other than
+# steps.version.outputs.* are refused with an error. A game that needs more than that should
+# drop the rehearsal step from its own ci.yml; ci/ is overwritten by the sync.
+#
 # Reads the values the workflow's steps read: TAG, VERSION_NAME, GAME_NAME,
 # APK_NAME, EXE_NAME, BINARY_VERSION, CONTENT_VERSION, COMMIT, GITHUB_REPOSITORY,
 # and optionally RELEASE_BRANCH and SIGNING_KIND, all in the environment: the extracted
@@ -66,10 +73,27 @@ try:
 except OSError as error:
     sys.exit("::error::cannot read %s: %s" % (path, error))
 
-step = re.search(r"^      - name: " + re.escape(name) + r"\n(.*?)(?=^      - name: |\Z)", text, re.S | re.M)
-if step is None:
+# Any "      - " opens the next step, named or not, so a step without a run block cannot
+# lend the one after it. A step name may be quoted.
+heading = re.compile(
+    r"^      - name: [\"']?" + re.escape(name) + r"[\"']?[ \t]*(?:#.*)?\n(.*?)(?=^      - |\Z)",
+    re.S | re.M,
+)
+found = list(heading.finditer(text))
+if not found:
     sys.exit("::error::%s has no step named %r; the release rehearsal needs it." % (path, name))
-run = re.search(r"^        run: \|\n((?:          .*\n|\n)+)", step.group(1), re.M)
+if len(found) > 1:
+    sys.exit("::error::%s has %d steps named %r; the release rehearsal cannot tell which one runs."
+             % (path, len(found), name))
+
+# The run block is every following line indented deeper than the key. A line of only
+# whitespace belongs to it whatever its width, because YAML reads it as an empty line:
+# stopping there would run half a block and report success. A last line with no newline
+# is still a line.
+step_text = found[0].group(1)
+if not step_text.endswith("\n"):
+    step_text += "\n"
+run = re.search(r"^        run: \|[-+]?[ \t]*(?:#.*)?\n((?:          .*\n|[ \t]*\n)+)", step_text, re.M)
 if run is None:
     sys.exit("::error::step %r in %s has no 'run: |' block." % (name, path))
 
@@ -227,6 +251,8 @@ else:
     call = create[0]
     if not call.startswith("release create %s " % tag):
         problems.append("release create is not for the tag %s: %s" % (tag, call))
+    if "--draft" in call:
+        problems.append("a release must not be created as a draft, players cannot see one: %s" % call)
     for name in assets:
         if "%s/%s" % (os.environ["RELEASE_DIR"], name) not in call:
             problems.append("%s is not among the uploaded assets" % name)

@@ -15,12 +15,20 @@ from __future__ import annotations
 import json
 import pathlib
 import re
-import shutil
 import unittest
 
 from test_release_scripts import Sandbox
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
+
+# new_game.sh renames the game, so an un-renamed version.json is the template itself. The
+# template's own workflows are held to the checks below; a game's are its own business, and
+# a check that cannot apply to them is skipped, not failed: ci/ is synced into games and
+# overwritten, so a game could not fix a test that broke its pull requests.
+try:
+    IS_TEMPLATE = json.loads((REPO / "version.json").read_text(encoding="utf-8")).get("game_name") == "Launcher Demo"
+except (OSError, ValueError):
+    IS_TEMPLATE = False
 
 ENV = {
     "TAG": "v0.1.0+3", "VERSION_NAME": "0.1.0", "GAME_NAME": "Launcher Demo",
@@ -28,6 +36,63 @@ ENV = {
     "BINARY_VERSION": "7", "CONTENT_VERSION": "3", "COMMIT": "abcdef12",
     "GITHUB_REPOSITORY": "me/game",
 }
+
+# A reference release workflow, embedded so these tests do not depend on the game's own
+# release.yml (which a game is free to change). It holds the two steps the rehearsal
+# executes and the publish step it mirrors, copied from the template's release.yml.
+FIXTURE_WORKFLOW = r"""name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Assemble release directory
+        run: |
+          mkdir -p build/release
+          cp build/android/${{ steps.version.outputs.apk_name }} build/release/
+          cp build/windows/${{ steps.version.outputs.exe_name }} build/release/
+          cp build/content/content-android.pck build/release/
+          cp build/content/content-desktop.pck build/release/
+
+      - name: Build update manifest
+        run: |
+          python3 ci/make_manifest.py \
+            --changes-file build/notes/changes.json \
+            --previous-manifest build/notes/previous.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --version-name "${{ steps.version.outputs.version_name }}" \
+            --binary-version "${{ steps.version.outputs.binary_version }}" \
+            --content-version "${{ steps.version.outputs.content_version }}" \
+            --commit "${{ steps.version.outputs.commit }}" \
+            --tag "${{ steps.version.outputs.tag }}" \
+            --artifact "binary:android:build/release/${{ steps.version.outputs.apk_name }}" \
+            --artifact "binary:windows:build/release/${{ steps.version.outputs.exe_name }}" \
+            --artifact "content:android:build/release/content-android.pck" \
+            --artifact "content:windows:build/release/content-desktop.pck" \
+            --artifact "content:linux:build/release/content-desktop.pck" \
+            --artifact "content:macos:build/release/content-desktop.pck" \
+            --out build/release/manifest.json
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          GAME_NAME: ${{ steps.version.outputs.game_name }}
+          APK_NAME: ${{ steps.version.outputs.apk_name }}
+          EXE_NAME: ${{ steps.version.outputs.exe_name }}
+          BINARY_VERSION: ${{ steps.version.outputs.binary_version }}
+          CONTENT_VERSION: ${{ steps.version.outputs.content_version }}
+          SIGNING_KIND: ${{ steps.keystore.outputs.kind }}
+        run: bash ci/publish_release.sh
+"""
 
 ASSEMBLE_EXE = "cp build/windows/${{ steps.version.outputs.exe_name }} build/release/\n"
 MANIFEST_MACOS = '            --artifact "content:macos:build/release/content-desktop.pck" \\\n'
@@ -38,11 +103,12 @@ class Rehearsal(Sandbox):
 
     def setUp(self):
         super().setUp()
+        self.skip_without_gnu_tools()
         self.commit("Add the first thing", {"README.md": "x"})
         self.commit("Fix the second thing")
         workflows = self.root / ".github" / "workflows"
         workflows.mkdir(parents=True)
-        shutil.copy(REPO / ".github" / "workflows" / "release.yml", workflows / "release.yml")
+        (workflows / "release.yml").write_text(FIXTURE_WORKFLOW, encoding="utf-8")
         for path, data in {
             "build/android/launcher-demo.apk": b"apk bytes",
             "build/windows/LauncherDemo.exe": b"exe bytes",
@@ -250,6 +316,137 @@ class Rehearsal(Sandbox):
         self.break_file("ci/publish_release.sh", ': "${TAG:?TAG must be set}"', "exit 3")
         self.assertNotEqual(self.rehearse().returncode, 0)
 
+    # -- extraction must never run half a block and call it a pass --------
+    def block_of(self, name):
+        text = (self.root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        start = text.index("- name: " + name)
+        end = text.index("\n      - ", start + 1)
+        return start, end
+
+    def test_a_blank_line_made_of_spaces_does_not_end_the_block(self):
+        # YAML reads a short whitespace-only line as empty; the block goes on after it.
+        start, end = self.block_of("Build update manifest")
+        path = self.root / ".github" / "workflows" / "release.yml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text[:end] + "\n   \n          echo STILL-RUNNING >&2\n          exit 7\n" + text[end:], encoding="utf-8")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0, "the lines after the blank one must run")
+        self.assertIn("STILL-RUNNING", result.stderr)
+
+    def test_a_command_after_a_short_blank_line_in_the_assemble_step_runs(self):
+        start, end = self.block_of("Assemble release directory")
+        path = self.root / ".github" / "workflows" / "release.yml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text[:end] + "\n \n          echo extra > build/release/extra.txt\n" + text[end:], encoding="utf-8")
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.out / "extra.txt").exists())
+        self.assertIn("with 7 assets", result.stdout)
+
+    def test_a_block_that_is_the_last_thing_in_the_file_without_a_newline_is_whole(self):
+        path = self.root / ".github" / "workflows" / "release.yml"
+        text = path.read_text(encoding="utf-8")
+        start = text.index("- name: Build update manifest")
+        manifest = text[start:text.index("\n      - ", start)]
+        # move the manifest step to the end of the file and drop the trailing newline
+        rest = text[:start] + text[text.index("\n      - ", start):]
+        path.write_text(rest.rstrip("\n") + "\n\n      " + manifest.rstrip("\n") + "\n          echo LAST-LINE >&2", encoding="utf-8")
+        self.assertFalse(path.read_text(encoding="utf-8").endswith("\n"))
+        result = self.rehearse()
+        self.assertIn("LAST-LINE", result.stderr)
+
+    def test_an_indented_heredoc_in_a_block_works_as_it_does_in_github(self):
+        # YAML removes the block's indentation before bash sees it, so a heredoc terminator
+        # written at the block's own indent is found; the extraction must do the same.
+        self.break_workflow(ASSEMBLE_EXE, ASSEMBLE_EXE + "          cat > build/release/note.txt <<EOF\n          hello\n          EOF\n")
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.out / "note.txt").read_text(encoding="utf-8"), "hello\n")
+
+    def test_run_with_a_strip_indicator_is_accepted(self):
+        self.break_workflow("- name: Assemble release directory\n        run: |", "- name: Assemble release directory\n        run: |-")
+        self.assertEqual(self.rehearse().returncode, 0)
+
+    def test_a_step_name_may_be_quoted(self):
+        self.break_workflow("- name: Build update manifest", '- name: "Build update manifest"')
+        self.assertEqual(self.rehearse().returncode, 0)
+
+    def test_a_step_whose_name_starts_like_another_is_not_mistaken_for_it(self):
+        path = self.root / ".github" / "workflows" / "release.yml"
+        text = path.read_text(encoding="utf-8")
+        marker = "      - name: Build update manifest\n"
+        decoy = "      - name: Build update manifest again\n        run: |\n          echo WRONG-STEP >&2\n          exit 9\n\n"
+        path.write_text(text.replace(marker, decoy + marker), encoding="utf-8")
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("WRONG-STEP", result.stderr)
+
+    def test_a_step_without_a_run_block_does_not_borrow_the_next_steps(self):
+        self.break_workflow("      - name: Build update manifest\n        run: |\n",
+                            "      - name: Build update manifest\n        uses: actions/x@v1\n\n"
+                            "      - id: anonymous\n        run: |\n          exit 9\n\n"
+                            "      - name: Orphaned\n        run: |\n")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("step 'Build update manifest'", result.stderr)
+        self.assertIn("has no 'run: |' block", result.stderr)
+
+    def test_two_steps_with_the_same_name_are_refused(self):
+        path = self.root / ".github" / "workflows" / "release.yml"
+        text = path.read_text(encoding="utf-8")
+        marker = "      - name: Build update manifest\n"
+        path.write_text(text.replace(marker, marker.replace("manifest", "manifest") + "        run: |\n          true\n\n" + marker), encoding="utf-8")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("has 2 steps named 'Build update manifest'", result.stderr)
+
+    # -- more of what the rehearsal must catch ----------------------------
+    def test_a_release_that_would_be_created_as_a_draft_fails_the_check(self):
+        self.break_file("ci/publish_release.sh", 'gh release create "$TAG" "$RELEASE_DIR"/* \\', 'gh release create "$TAG" --draft "$RELEASE_DIR"/* \\')
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("a draft", result.stderr)
+
+    def test_a_release_marked_both_latest_and_prerelease_fails_the_check(self):
+        self.break_file("ci/publish_release.sh", "RELEASE_FLAGS=(--latest)", "RELEASE_FLAGS=(--latest --prerelease)")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be created as latest", result.stderr)
+
+    def test_the_linux_content_pack_is_required_too(self):
+        self.break_workflow('            --artifact "content:linux:build/release/content-desktop.pck" \\\n', "")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("content:linux is missing from the manifest", result.stderr)
+
+    def test_a_manifest_with_the_wrong_version_fields_fails_the_check(self):
+        for old, new, message in (
+            ('        "binary_version": args.binary_version,\n        "content_version": args.content_version,\n        "commit"',
+             '        "binary_version": 99,\n        "content_version": args.content_version,\n        "commit"', "binary_version does not match"),
+            ('        "binary_version": args.binary_version,\n        "content_version": args.content_version,\n        "commit"',
+             '        "binary_version": args.binary_version,\n        "content_version": 99,\n        "commit"', "content_version does not match"),
+            ('        "version_name": args.version_name,\n        "binary_version": args.binary_version,\n        "content_version": args.content_version,\n        "commit"',
+             '        "version_name": "9.9.9",\n        "binary_version": args.binary_version,\n        "content_version": args.content_version,\n        "commit"', "version_name does not match"),
+        ):
+            with self.subTest(message=message):
+                source = (self.root / "ci" / "make_manifest.py").read_text(encoding="utf-8")
+                self.break_file("ci/make_manifest.py", old, new)
+                result = self.rehearse()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                (self.root / "ci" / "make_manifest.py").write_text(source, encoding="utf-8")
+
+    # -- the real release.yml (the template only) -------------------------
+    @unittest.skipUnless(IS_TEMPLATE, "a game's release.yml is its own; only the template's is held to this")
+    def test_the_templates_own_release_yml_is_rehearsable_and_matches_the_reference(self):
+        real = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        for name in ("Assemble release directory", "Build update manifest", "Publish release"):
+            reference = FIXTURE_WORKFLOW[FIXTURE_WORKFLOW.index("- name: " + name):].split("\n      - ")[0].rstrip("\n")
+            self.assertIn(reference, real, "the reference workflow in this file has drifted from release.yml's %r step" % name)
+        (self.root / ".github" / "workflows" / "release.yml").write_text(real, encoding="utf-8")
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     # -- the workflow cannot be read: say so, loudly ----------------------
     def test_a_missing_step_is_named(self):
         self.break_workflow("- name: Build update manifest", "- name: Something else")
@@ -309,6 +506,11 @@ class KeepInStep(unittest.TestCase):
     release = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
+    def setUp(self):
+        if not IS_TEMPLATE:
+            self.skipTest("these keep the template's two workflows in step; in a game the rehearsal "
+                          "step itself fails when its release.yml and ci.yml disagree")
+
     @staticmethod
     def normalise(text):
         text = re.sub(r"\$\{\{ steps\.version\.outputs\.(\w+) \}\}", lambda m: "$" + m.group(1).upper(), text)
@@ -316,6 +518,8 @@ class KeepInStep(unittest.TestCase):
 
     def step(self, text, name):
         match = re.search(r"- name: %s\n(.*?)(?=\n      - name: |\Z)" % re.escape(name), text, re.S)
+        if match is None and not IS_TEMPLATE:
+            self.skipTest("this game's workflow has no step %r, so this check does not apply" % name)
         self.assertIsNotNone(match, "no step named %r" % name)
         return match.group(1)
 

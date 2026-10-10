@@ -123,6 +123,12 @@ class Sandbox(unittest.TestCase):
         env.update(extra)
         return env
 
+    def skip_without_gnu_tools(self):
+        """publish_release.sh uses find -printf and sha256sum, which macOS does not ship."""
+        probe = subprocess.run(["find", ".", "-maxdepth", "0", "-printf", "x"], capture_output=True, cwd=self.root)
+        if probe.returncode != 0 or shutil.which("sha256sum") is None:
+            self.skipTest("needs GNU find and sha256sum")
+
     def git(self, *args):
         return subprocess.run(["git", *args], cwd=self.root, env=self.env(), check=True,
                               capture_output=True, text=True).stdout.strip()

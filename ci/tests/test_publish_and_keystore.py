@@ -64,6 +64,7 @@ ASSETS = {
 class PublishBase(Sandbox):
     def setUp(self):
         super().setUp()
+        self.skip_without_gnu_tools()
         self.shell_scripts = ("publish_release.sh", "setup_keystore.sh")
         for name in self.shell_scripts:
             shutil_copy = self.root / "ci" / name
@@ -122,6 +123,14 @@ class PublishRelease(PublishBase):
         self.assertIn("--prerelease", create)
         self.assertNotIn("--latest", create)
         self.assertIn("--title Launcher Demo 0.1.0 (dev) ", create + " ")
+
+    def test_a_release_is_never_a_draft(self):
+        # a draft is invisible to every player's app, and /releases/latest/ skips it
+        for env in ({}, {"TAG": "branch-dev", "RELEASE_BRANCH": "dev"}):
+            with self.subTest(env=env):
+                self.gh_log.unlink(missing_ok=True)
+                self.publish(**env)
+                self.assertTrue(all("--draft" not in call for call in self.gh_calls()), self.gh_calls())
 
     def test_an_existing_release_is_refreshed_in_place_not_recreated(self):
         result = self.publish(FAKE_GH_EXISTS="1", TAG="branch-dev", RELEASE_BRANCH="dev")
@@ -345,6 +354,21 @@ class SetupKeystore(PublishBase):
         text = self.summary.read_text(encoding="utf-8")
         self.assertIn("throwaway debug key", text)
         self.assertIn("ANDROID_KEYSTORE_BASE64", text)
+
+    def test_the_job_summary_is_appended_to_not_overwritten(self):
+        self.summary.write_text("written by an earlier step\n", encoding="utf-8")
+        self.keystore()
+        text = self.summary.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("written by an earlier step\n"))
+        self.assertIn("throwaway debug key", text)
+
+    def test_the_debug_key_is_cached_under_the_default_directory_when_none_is_given(self):
+        result = self.run_script("setup_keystore.sh", RUNNER_TEMP=str(self.temp), GITHUB_OUTPUT=str(self.output),
+                                 GITHUB_STEP_SUMMARY=str(self.summary), FAKE_KEYTOOL_LOG=str(self.keytool_log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        cached = self.temp / "launcher-keystore-cache" / "debug.keystore"
+        self.assertTrue(cached.exists(), sorted(str(p) for p in self.temp.rglob("*")))
+        self.assertEqual(cached.read_bytes(), b"generated keystore")
 
     def test_a_release_key_leaves_no_debug_warning(self):
         self.keystore(ANDROID_KEYSTORE_BASE64=base64.b64encode(b"k").decode())
