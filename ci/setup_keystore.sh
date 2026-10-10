@@ -27,8 +27,8 @@ if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
 	# Fed through stdin rather than an argument so it never reaches the process table.
 	# A failing decode is tested here rather than left to set -e, which would stop the script
 	# before the message below could print and leave the half-written file behind. base64's own
-	# complaint stays visible (it names the problem, never the input), so a full disk is not
-	# mistaken for a bad secret.
+	# complaint stays visible (it names the problem, never the input), so a cause other than a bad
+	# secret, such as a full disk, shows up next to the annotation.
 	if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH" \
 		|| [[ ! -s "$KEYSTORE_PATH" ]]; then
 		rm -f "$KEYSTORE_PATH"
