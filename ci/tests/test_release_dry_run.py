@@ -363,6 +363,37 @@ class Rehearsal(Sandbox):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.out / "note.txt").read_text(encoding="utf-8"), "hello\n")
 
+    def test_every_block_indicator_that_yaml_allows_without_a_number_is_accepted(self):
+        for indicator in ("|-", "|+", "| # a comment", "|-   # a comment"):
+            with self.subTest(indicator=indicator):
+                path = self.root / ".github" / "workflows" / "release.yml"
+                original = path.read_text(encoding="utf-8")
+                self.break_workflow("- name: Assemble release directory\n        run: |", "- name: Assemble release directory\n        run: " + indicator)
+                self.assertEqual(self.rehearse().returncode, 0)
+                path.write_text(original, encoding="utf-8")
+
+    def test_a_step_name_may_be_quoted_either_way_or_followed_by_a_comment(self):
+        for written in ("'Build update manifest'", '"Build update manifest"', "Build update manifest  # the manifest"):
+            with self.subTest(name=written):
+                path = self.root / ".github" / "workflows" / "release.yml"
+                original = path.read_text(encoding="utf-8")
+                self.break_workflow("- name: Build update manifest", "- name: " + written)
+                result = self.rehearse()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                path.write_text(original, encoding="utf-8")
+
+    def test_a_comment_after_a_step_name_does_not_swallow_the_rest_of_the_file(self):
+        # (?:#.*)? under re.S matched to the end of the file and gave "has no run block".
+        self.break_workflow("- name: Assemble release directory", "- name: Assemble release directory  # copies")
+        self.assertEqual(self.rehearse().returncode, 0)
+
+    def test_the_default_shell_flags_are_e_not_u(self):
+        # A command that fails in the middle of a block must stop it, as GitHub's bash -e does.
+        self.break_workflow(ASSEMBLE_EXE, ASSEMBLE_EXE + "          false\n          echo AFTER-FALSE >&2\n")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("AFTER-FALSE", result.stderr)
+
     def test_run_with_a_strip_indicator_is_accepted(self):
         self.break_workflow("- name: Assemble release directory\n        run: |", "- name: Assemble release directory\n        run: |-")
         self.assertEqual(self.rehearse().returncode, 0)
@@ -440,9 +471,15 @@ class Rehearsal(Sandbox):
     @unittest.skipUnless(IS_TEMPLATE, "a game's release.yml is its own; only the template's is held to this")
     def test_the_templates_own_release_yml_is_rehearsable_and_matches_the_reference(self):
         real = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        def step_text(text, name):
+            start = text.index("- name: " + name)
+            end = text.find("\n      - ", start)
+            return text[start:end if end != -1 else len(text)].rstrip("\n")
+
         for name in ("Assemble release directory", "Build update manifest", "Publish release"):
-            reference = FIXTURE_WORKFLOW[FIXTURE_WORKFLOW.index("- name: " + name):].split("\n      - ")[0].rstrip("\n")
-            self.assertIn(reference, real, "the reference workflow in this file has drifted from release.yml's %r step" % name)
+            if step_text(FIXTURE_WORKFLOW, name) != step_text(real, name):
+                self.fail("FIXTURE_WORKFLOW in ci/tests/test_release_dry_run.py has drifted from release.yml's %r step: "
+                          "copy that step into the fixture." % name)
         (self.root / ".github" / "workflows" / "release.yml").write_text(real, encoding="utf-8")
         result = self.rehearse()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -503,13 +540,14 @@ class Rehearsal(Sandbox):
 class KeepInStep(unittest.TestCase):
     """ci.yml must export what release.yml publishes, and hand the rehearsal what it reads."""
 
-    release = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-
     def setUp(self):
+        # Read here, not in the class body: a game may have no workflows at all, and a read
+        # at import would turn that into an error for the whole module instead of a skip.
         if not IS_TEMPLATE:
             self.skipTest("these keep the template's two workflows in step; in a game the rehearsal "
                           "step itself fails when its release.yml and ci.yml disagree")
+        self.release = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     @staticmethod
     def normalise(text):

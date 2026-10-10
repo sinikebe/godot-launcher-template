@@ -76,7 +76,7 @@ except OSError as error:
 # Any "      - " opens the next step, named or not, so a step without a run block cannot
 # lend the one after it. A step name may be quoted.
 heading = re.compile(
-    r"^      - name: [\"']?" + re.escape(name) + r"[\"']?[ \t]*(?:#.*)?\n(.*?)(?=^      - |\Z)",
+    r"^      - name: [\"']?" + re.escape(name) + r"[\"']?[ \t]*(?:#[^\n]*)?\n(.*?)(?=^      - |\Z)",
     re.S | re.M,
 )
 found = list(heading.finditer(text))
