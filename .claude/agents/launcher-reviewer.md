@@ -74,16 +74,17 @@ they are three views of one machine and drift between them is the usual bug.
 
 ## Verifying your work
 
-There is a small test suite -- \`ci/tests/\` -- and the import-and-boot check is the
+There is a small test suite -- `ci/tests/` -- and the import-and-boot check is the
 safety net behind it. The tests cover the changelog formatting, the pack mount guards,
-and \`ci/make_manifest.py\`; the install-over-the-old-version path is still untested.
+`ci/make_manifest.py`, and the release-prep scripts `ci/collect_changes.sh` and
+`ci/prepare_build.sh`; the install-over-the-old-version path is still untested.
 
-\`\`\`bash
+```bash
 python3 -B -m unittest discover -s ci/tests -v
 HOME=$(mktemp -d) ~/godot/godot --headless --path . --script ci/tests/run_gd_tests.gd
-\`\`\`
+```
 
-Use a scratch \`HOME\`: the GDScript tests write to \`user://\` and refuse to run over
+Use a scratch `HOME`: the GDScript tests write to `user://` and refuse to run over
 existing launcher state. Then import and boot:
 
 ```bash
@@ -93,7 +94,7 @@ existing launcher state. Then import and boot:
 
 Boot alone catches parse errors, bad preloads, and broken scene references. The
 tests above cover the changelog formatting and the staged-pack mount decision, but
-not version comparison in \`check_for_updates()\`, the download and install steps, or
+not version comparison in `check_for_updates()`, the download and install steps, or
 anything Android-specific -- reason about those directly, and state plainly which of
 your claims you verified by running something and which you derived by reading.
 
