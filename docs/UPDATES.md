@@ -56,8 +56,8 @@ downloading into it, an APK may be open in the system installer, and the Windows
 helper waits up to a minute for the app to exit before it copies `update-<n>.exe`.
 So two rules apply: `update-<n>.apk` and `update-<n>.exe` with *n* at or below this
 binary's own `binary_version` are removed (that update is installed), and any other
-file the launcher wrote there (`*.part`, `apply_update.ps1`, an update for a newer
-binary) is removed once it has sat untouched for 24 hours. A good APK left by
+file of that kind (`*.part`, `apply_update.ps1`, an update for a newer
+binary) is removed once more than 24 hours have passed since it was last written. A good APK left by
 backing out of the installer therefore stays long enough to be reused. Files the
 launcher did not write are left alone.
 

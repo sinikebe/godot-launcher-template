@@ -603,6 +603,13 @@ func _newest_mtime(paths: Array) -> int:
 	return newest
 
 
+func _oldest_mtime(paths: Array) -> int:
+	var oldest := 1 << 62
+	for path: String in paths:
+		oldest = mini(oldest, int(FileAccess.get_modified_time(path)))
+	return oldest
+
+
 func _test_staging_sweep() -> void:
 	var real_binary: int = _bi.binary_version
 	_bi.binary_version = 4
@@ -632,10 +639,14 @@ func _test_staging_sweep() -> void:
 		check(FileAccess.file_exists(path), "a file the launcher did not write is left alone: " + path.get_file())
 	check(FileAccess.file_exists(content_pack["path"]), "the content dir is not touched by the staging sweep")
 
-	# age: strictly more than the limit since the last write
+	# age: strictly more than the limit since the last write. The files were written a moment
+	# apart, so their whole-second times can differ: "kept" is judged from the oldest, "swept"
+	# from the newest, which keeps the test from depending on a second not rolling over.
+	eq(_bi.STAGING_MAX_AGE_SECONDS, 86400, "the staging age limit is 24 hours")
 	var keepers := [pending_apk, part, script]
+	var oldest := _oldest_mtime(keepers)
 	var newest := _newest_mtime(keepers)
-	_bi._sweep_staging_dir(newest + _bi.STAGING_MAX_AGE_SECONDS)
+	_bi._sweep_staging_dir(oldest + _bi.STAGING_MAX_AGE_SECONDS)
 	for path: String in keepers:
 		check(FileAccess.file_exists(path), "exactly at the age limit: kept: " + path.get_file())
 	_bi._sweep_staging_dir(newest + _bi.STAGING_MAX_AGE_SECONDS + 1)
@@ -675,6 +686,7 @@ func _test_too_new_manifest_is_not_cached() -> void:
 	_us._cache_changelog()
 	_us.manifest = {"schema": _us.SUPPORTED_SCHEMA + 1, "changelog": [_entry(9, ["new"])]}
 	_us._interpret_manifest()
+	eq(_versions(_us.full_changelog()), [6], "a newer schema: the menu in this same session still shows the cached history")
 	_us.manifest = {}
 	eq(_versions(_us.full_changelog()), [6], "a newer schema leaves the cached history as it was")
 

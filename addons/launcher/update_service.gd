@@ -237,7 +237,9 @@ func check_for_updates() -> State:
 func _interpret_manifest() -> State:
 	var schema := int(manifest.get("schema", 0))
 	if schema > SUPPORTED_SCHEMA:
-		# Not cached: a feed this build cannot read must not replace the history it can.
+		# Neither cached nor shown: a feed this build cannot read must not replace the history it
+		# can, on disk or in this session (full_changelog() prefers the manifest over the cache).
+		manifest.erase("changelog")
 		return _finish(State.UNAVAILABLE,
 			tr("This build is too old to understand the update feed. Please reinstall from GitHub."))
 	_cache_changelog()
