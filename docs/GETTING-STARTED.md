@@ -179,6 +179,9 @@ To get back to the launcher from your game, change scene to
 `res://addons/launcher/launcher.tscn`. That path is promised not to move; see
 [Buttons](../README.md#buttons).
 
+On Android, Back inside your game does nothing until your game handles it;
+see [Back on Android](../README.md#back-on-android).
+
 ## Staying up to date
 
 Once a day a workflow pulls launcher improvements from the template, checks your

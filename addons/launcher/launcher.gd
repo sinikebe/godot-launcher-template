@@ -98,6 +98,11 @@ var _hooks: Object = null
 
 func _ready() -> void:
 	_config = BuildInfo.config
+	# Back is handled in _notification() here, and by the game once it is
+	# running, so Godot must not quit on it by itself. Switched off at runtime,
+	# not in project.godot: a content pack cannot change a project setting, and
+	# the sync never touches a game's. Before the hook, so a game can turn it on.
+	get_tree().quit_on_go_back = false
 	# First, so whatever the game sets up -- its catalogs, a language the player
 	# chose -- is already in force when the screen below is built.
 	_run_opening_hook()
@@ -158,11 +163,14 @@ func _ready() -> void:
 		await UpdateService.check_for_updates()
 
 
-## Follows a language change made while the launcher is showing. The menu and
-## the title translate themselves; the nodes refilled here are filled with tr()
-## instead -- so a placeholder can be filled after translating -- and nothing
-## else would ever refill them.
+## Handles Back, and follows a language change made while the launcher is
+## showing. The menu and the title translate themselves; the nodes refilled here
+## are filled with tr() instead -- so a placeholder can be filled after
+## translating -- and nothing else would ever refill them.
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_on_back()
+		return
 	if what == NOTIFICATION_PREDELETE:
 		# A hooks script that extends Object is neither reference-counted nor in
 		# the tree, so nothing else would ever free it.
@@ -656,6 +664,16 @@ func _fit_overlay() -> void:
 	# something recalculates the scroll's minimum size, it keeps its old height.
 	# A window made taller would otherwise leave the text in its old, smaller box.
 	_overlay_scroll.update_minimum_size()
+
+
+## Back on Android, on the launcher's own screen: closes the open dialog, and
+## otherwise quits, which is what Back did before _ready() turned Godot's own
+## quit off. Inside the game the launcher is gone, and Back is the game's.
+func _on_back() -> void:
+	if _overlay.visible:
+		_hide_overlay()
+	else:
+		get_tree().quit()
 
 
 func _hide_overlay() -> void:

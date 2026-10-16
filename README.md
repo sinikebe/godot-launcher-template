@@ -264,6 +264,30 @@ template will not move it. If your main scene is a scene of your own around
 the launcher, change to that instead. Your `_launcher_opening()` runs again
 each time the launcher opens.
 
+### Back on Android
+
+By default, Godot quits the app whenever Back is pressed. The launcher turns
+that off each time it opens:
+
+- **On the launcher's screen**, Back closes an open dialog, and otherwise
+  quits.
+- **In your game**, Back does nothing until you handle it, so one stray tap no
+  longer ends a run. To pause, open a menu or return to the launcher, handle
+  the notification in your scene:
+
+  ```gdscript
+  func _notification(what: int) -> void:
+      if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+          get_tree().change_scene_to_file("res://addons/launcher/launcher.tscn")
+  ```
+
+  To have Back quit from your game again, set
+  `get_tree().quit_on_go_back = true` there.
+
+This is code, so a content update can change it. Setting
+`application/config/quit_on_go_back` in `project.godot` is not enough: a
+content update cannot change it, and the launcher overrides it anyway.
+
 ### Version stamp
 
 The corner of the launcher shows two lines: the game's version on top, and the
