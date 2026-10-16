@@ -18,6 +18,13 @@ signal custom_button_pressed(label: String)
 ## configured, connecting this takes the Play action over entirely.
 signal play_requested()
 
+## Emitted when Back reaches the launcher's screen and none of the launcher's
+## own dialogs took it. A game that turns get_tree().quit_on_go_back off to
+## handle Back itself here -- a panel of its own, a scene around the launcher --
+## connects this rather than handling NOTIFICATION_WM_GO_BACK_REQUEST, which
+## also arrives for a Back that only closed one of the launcher's dialogs.
+signal back_requested()
+
 ## The game's own script for the launcher's screen, run before it builds
 ## anything when the file exists. See _run_opening_hook().
 const HOOKS_PATH := "res://launcher_hooks.gd"
@@ -103,8 +110,9 @@ func _ready() -> void:
 	# and turns the quit off when it leaves for the game; see _notification().
 	# Before the hook, so a game that handles Back here itself -- a panel of its
 	# own, a scene around the launcher -- can turn it off and is not quit from
-	# under.
-	get_tree().quit_on_go_back = bool(ProjectSettings.get_setting("application/config/quit_on_go_back", true))
+	# under. With the override, as Godot read it at startup: a game may have set
+	# it for Android alone, as quit_on_go_back.android.
+	get_tree().quit_on_go_back = bool(ProjectSettings.get_setting_with_override("application/config/quit_on_go_back"))
 	# First, so whatever the game sets up -- its catalogs, a language the player
 	# chose -- is already in force when the screen below is built.
 	_run_opening_hook()
@@ -172,9 +180,15 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		# Before _ready() there is no dialog to close, and _overlay is not set yet.
-		if _screen_built and _overlay.visible:
+		if not _screen_built:
+			return
+		# In the tree, not just visible: a launcher kept hidden beside the game
+		# can hold a dialog the player cannot see, which must not eat their Back.
+		if _overlay.is_visible_in_tree():
 			_hide_overlay()
 			_hold_quit_for_this_back()
+		else:
+			back_requested.emit()
 		return
 	if what == NOTIFICATION_EXIT_TREE:
 		# Leaving for the game, whose run must not end on one stray Back. Switched
@@ -685,7 +699,16 @@ func _hold_quit_for_this_back() -> void:
 	if not tree.quit_on_go_back:
 		return
 	tree.quit_on_go_back = false
-	tree.set_deferred("quit_on_go_back", true)
+	_release_quit.call_deferred()
+
+
+## Ends _hold_quit_for_this_back(), unless the launcher left the tree in between
+## -- a tap on Play handled in the same frame as the Back. NOTIFICATION_EXIT_TREE
+## has then already turned the quit off for the game, and turning it back on
+## would let one stray Back end the run.
+func _release_quit() -> void:
+	if is_inside_tree():
+		get_tree().quit_on_go_back = true
 
 
 func _hide_overlay() -> void:

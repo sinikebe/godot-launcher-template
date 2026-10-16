@@ -273,9 +273,12 @@ that in two places only:
   otherwise quits, as `application/config/quit_on_go_back` in your
   `project.godot` says (on unless you turned it off). If your
   `_launcher_opening()` adds a panel of its own, or your main scene is a scene
-  of yours around the launcher, set `get_tree().quit_on_go_back = false` from
-  there and handle Back yourself, as below. Nothing then quits on Back unless
-  your code does.
+  of yours around the launcher, set `get_tree().quit_on_go_back = false` --
+  from `_launcher_opening()`, or from that scene's `_ready()`, which runs after
+  the launcher's -- and handle Back by connecting the launcher's
+  `back_requested` signal. It is emitted only for a Back that none of the
+  launcher's dialogs took, so the Back that closes one never reaches your code
+  as well. Nothing then quits on Back unless your code does.
 - **In your game**, Back does nothing until you handle it, so one stray tap no
   longer ends a run. The launcher turns the quit off as it leaves the scene
   tree. To pause, open a menu or return to the launcher, handle the
