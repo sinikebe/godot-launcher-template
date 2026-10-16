@@ -146,6 +146,7 @@ The next build picks them up automatically.
 | `export_presets.cfg` | Android package id, icons, architectures |
 | `launcher_hooks.gd` (optional) | Your own code on the launcher's screen — [how](../README.md#your-own-code-on-the-launchers-screen) |
 | `locale/` | Your translations, `.po` per language — [how](../README.md#language) |
+| `project.godot` | Whether Back quits, and screen orientation — [Back](../README.md#back-on-android), [orientation](../README.md#screen-orientation) |
 | your own scenes | The actual game |
 
 | Leave alone | |
