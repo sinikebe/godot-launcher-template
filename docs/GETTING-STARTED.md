@@ -175,6 +175,10 @@ For more control, leave `play_scene` empty and connect the launcher's
 ([Your own code on the launcher's screen](../README.md#your-own-code-on-the-launchers-screen)),
 which is also where your translations and a player's chosen language go.
 
+To get back to the launcher from your game, change scene to
+`res://addons/launcher/launcher.tscn`. That path is promised not to move; see
+[Buttons](../README.md#buttons).
+
 ## Staying up to date
 
 Once a day a workflow pulls launcher improvements from the template, checks your

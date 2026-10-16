@@ -3,6 +3,10 @@ extends Control
 ## in this file should need editing to reskin a game's launcher.
 ##
 ## Update logic lives in UpdateService; this file only drives the UI.
+##
+## Never move or rename this scene, res://addons/launcher/launcher.tscn. It is
+## every game's main scene, the sync cannot change a game's project.godot, and
+## the README tells games to return here by that path.
 
 ## Emitted when one of [member LauncherConfig.extra_buttons] is pressed, with
 ## that button's label. Connect it from [constant HOOKS_PATH]'s

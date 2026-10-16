@@ -250,6 +250,18 @@ func _launcher_opening(launcher: Control) -> void:
 failing silently — unless you connect `play_requested` the same way, which with
 `play_scene` empty takes the Play action over entirely.
 
+To come back to the launcher from your game, for a Leave or Main menu button,
+change scene to it:
+
+```gdscript
+get_tree().change_scene_to_file("res://addons/launcher/launcher.tscn")
+```
+
+That path is safe to write into your game. It is every game's main scene, and
+the sync never touches your `project.godot`, so moving it would break every
+game at once. The template will not move it. Your `_launcher_opening()` runs
+again each time the launcher opens.
+
 ### Version stamp
 
 The corner of the launcher shows two lines: the game's version on top, and the
