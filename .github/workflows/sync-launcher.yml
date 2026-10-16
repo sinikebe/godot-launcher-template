@@ -29,6 +29,8 @@ env:
   GODOT_RELEASE: stable
   LAUNCHER_TEMPLATE_REPO: sinikebe/godot-launcher-template
   LAUNCHER_TEMPLATE_REF: ${{ inputs.ref || 'main' }}
+  # Where release.yml publishes, so the build stamp below checks the same thing.
+  RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
 jobs:
   sync:

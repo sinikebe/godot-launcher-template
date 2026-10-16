@@ -293,6 +293,19 @@ class PublishRelease(PublishBase):
         self.publish(RELEASE_REPO="me/game-releases")
         self.assertNotIn("--target", self.gh_calls()[1])
 
+    def test_a_separate_release_repo_is_named_with_the_flag_too(self):
+        # gh refuses a tag that exists in this checkout but not in the target repo,
+        # unless the repo comes from --repo; GH_REPO alone is not enough.
+        self.publish(RELEASE_REPO="me/game-releases")
+        self.assertIn(" --repo me/game-releases ", self.gh_calls()[1] + " ")
+
+    def test_a_branch_build_here_is_not_pinned_to_its_commit(self):
+        # The workflow's token may not tag a commit that changes .github/workflows/
+        # relative to the default branch, which a branch build's commit may do.
+        self.publish(TAG="branch-dev", RELEASE_BRANCH="dev")
+        self.assertNotIn("--target", self.gh_calls()[1])
+        self.assertNotIn("--repo", self.gh_calls()[1])
+
     def test_a_branch_build_in_a_separate_release_repo_links_through_its_tag_there(self):
         self.publish(RELEASE_REPO="me/game-releases", TAG="branch-dev", RELEASE_BRANCH="dev")
         self.assertIn("(https://github.com/me/game-releases/releases/download/branch-dev/launcher-demo.apk)",

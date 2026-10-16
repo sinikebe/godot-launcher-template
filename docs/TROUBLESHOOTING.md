@@ -136,8 +136,9 @@ plainly when it fell back to a debug key.
 
 ### Release notes say "No previous release found"
 
-Expected on your first release. The notes come from commits since the last
-release tag, and there is no tag yet, so it describes the whole history.
+Expected on your first release. The notes come from commits since the commit
+the latest release's manifest records, or else since the newest `v<name>+<n>`
+tag. With neither yet, they describe the whole history, capped at 20 lines.
 
 ### My change is missing from the patch notes
 

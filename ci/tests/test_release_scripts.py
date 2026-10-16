@@ -89,6 +89,11 @@ def options_of(text, number):
 FAKE_GH = """#!/usr/bin/env bash
 echo "$@" >> "$FAKE_GH_LOG"
 echo "${GH_REPO:-}" >> "$FAKE_GH_LOG.repo"
+if [[ "$1 $2" == "release list" ]]; then
+  [[ -n "${FAKE_GH_LIST:-}" ]] || exit 1
+  echo "$FAKE_GH_LIST"
+  exit 0
+fi
 if [[ "$FAKE_GH_MODE" == ok ]]; then
   out=""
   while [[ $# -gt 0 ]]; do
@@ -319,11 +324,52 @@ class CollectChanges(Sandbox):
                         FAKE_GH_MANIFEST=self.manifest(released))
         self.assertEqual(self.changes(), ["c", "landed during the build"])
 
+    def gh_repos(self):
+        return pathlib.Path(str(self.gh_log) + ".repo").read_text().split()
+
     def test_release_repo_is_where_gh_looks(self):
         self.commit("a")
         self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail",
                         GITHUB_REPOSITORY="me/game", RELEASE_REPO="me/game-releases")
-        self.assertEqual(pathlib.Path(str(self.gh_log) + ".repo").read_text().split(), ["me/game-releases"])
+        self.assertEqual(set(self.gh_repos()), {"me/game-releases"})
+
+    def test_a_releases_repo_with_no_release_yet_starts_from_this_repos_latest(self):
+        # Moving a game that has shipped: its releases, and its players' history, are
+        # still here, and the releases repository has nothing to carry forward.
+        self.commit("old")
+        released = self.git("rev-parse", "--short=8", "HEAD")
+        self.commit("new")
+        result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok", FAKE_GH_LIST="0",
+                                 FAKE_GH_MANIFEST=self.manifest(released),
+                                 GITHUB_REPOSITORY="me/game", RELEASE_REPO="me/game-releases")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("me/game-releases has no release yet", result.stdout)
+        calls = self.gh_log.read_text().splitlines()
+        self.assertTrue(calls[0].startswith("release list"), calls)
+        self.assertTrue(calls[1].startswith("release download"), calls)
+        self.assertEqual(self.gh_repos(), ["me/game-releases", "me/game"])
+        self.assertEqual(self.changes(), ["new"])
+
+    def test_a_releases_repo_with_a_release_is_read_and_this_repo_is_not(self):
+        self.commit("a")
+        for listed in ("1", ""):  # one release, or the list itself failed: not "none"
+            with self.subTest(listed=listed):
+                self.gh_log.unlink(missing_ok=True)
+                pathlib.Path(str(self.gh_log) + ".repo").unlink(missing_ok=True)
+                result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail", FAKE_GH_LIST=listed,
+                                         GITHUB_REPOSITORY="me/game", RELEASE_REPO="me/game-releases")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("has no release yet", result.stdout)
+                self.assertEqual(set(self.gh_repos()), {"me/game-releases"})
+
+    def test_publishing_here_never_lists_releases(self):
+        self.commit("a")
+        for repo in ("", "me/game", "Me/GAME"):
+            with self.subTest(release_repo=repo):
+                self.gh_log.unlink(missing_ok=True)
+                self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail", FAKE_GH_LIST="0",
+                                GITHUB_REPOSITORY="me/game", RELEASE_REPO=repo)
+                self.assertFalse(any(c.startswith("release list") for c in self.gh_log.read_text().splitlines()))
 
     def test_without_release_repo_gh_looks_in_this_repository(self):
         self.commit("a")
@@ -436,6 +482,26 @@ class PrepareHelpers(Sandbox):
 
 
 class PrepareBuild(PrepareHelpers):
+    # -- where it polls against where it is published ----------------------
+    def test_a_build_that_polls_another_repo_than_it_is_published_to_says_so(self):
+        (self.root / "launcher_config.tres").write_text('[resource]\nupdate_repo = "me/game-releases"\n', encoding="utf-8")
+        cases = (
+            ({"GITHUB_REPOSITORY": "me/game"}, True),  # an older release.yml ignoring RELEASE_REPO
+            ({"GITHUB_REPOSITORY": "me/game", "RELEASE_REPO": "me/game-releases"}, False),
+            ({"GITHUB_REPOSITORY": "me/game", "RELEASE_REPO": "ME/Game-Releases"}, False),
+            ({}, False),  # outside Actions: nothing to compare
+        )
+        for env, warned in cases:
+            with self.subTest(env=env):
+                result = self.run_script("prepare_build.sh", **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("::warning::This build checks me/game-releases for updates" in result.stdout, warned)
+
+    def test_an_updater_turned_off_is_not_warned_about(self):
+        (self.root / "launcher_config.tres").write_text('[resource]\nupdate_repo = ""\n', encoding="utf-8")
+        result = self.run_script("prepare_build.sh", GITHUB_REPOSITORY="me/game")
+        self.assertNotIn("::warning::", result.stdout)
+
     # -- the stamp --------------------------------------------------------
     def test_build_version_carries_what_the_app_compares(self):
         out = self.prepare()

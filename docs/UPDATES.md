@@ -393,6 +393,12 @@ So a game whose code is private publishes its releases to a second, **public
 repository that holds only releases**. The code stays private, players need
 nothing, and the token that publishes lives only in the game's Actions secrets.
 
+First, bring the game's `.github/workflows/` up to date with the template's (see
+[the sync's drift note](TROUBLESHOOTING.md#the-sync-says-my-workflows-have-drifted)):
+a `release.yml` from before this existed ignores `RELEASE_REPO` and goes on
+publishing here. A build that checks one repository for updates but is published
+to another says so in a warning.
+
 1. **Create the releases repository**, public, for example `you/your-game-releases`.
    Tick *Add a README*: GitHub cannot create a release tag in a repository with no
    commits.
@@ -433,9 +439,12 @@ is enough: the launcher reads its config after mounting the content pack.
    `RELEASE_REPO` yet.
 2. Set `update_repo` to the releases repository and merge. That release is still
    published here, where every installed copy looks, and once a copy has it, it
-   polls the releases repository.
-3. Set `RELEASE_REPO`, then run the release again on the same commit (*Actions →
-   Release → Run workflow*), so the releases repository holds that release too.
+   polls the releases repository. Its build warns that it checks one repository
+   and is published to another: for this one release, that is the point.
+3. Straight away, set `RELEASE_REPO`, then run the release again on the same
+   commit (*Actions → Release → Run workflow*), so the releases repository holds
+   that release too, with the changelog players already have. Until it has run, a
+   copy that took step 2's release finds no release to check.
 4. Make the code repository private only once players have had time to update.
    A copy that never fetched step 2's release keeps polling here, and stops
    updating the moment this repository goes private.

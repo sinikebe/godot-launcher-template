@@ -42,14 +42,21 @@ RELEASE_BRANCH="${RELEASE_BRANCH:-}"
 RELEASE_REPO="${RELEASE_REPO:-$GITHUB_REPOSITORY}"
 # gh reads GH_REPO, so every gh call below publishes there.
 export GH_REPO="$RELEASE_REPO"
-# Where the release tag is created. In this repository, at the commit that was
-# built: without it GitHub tags the default branch's newest commit, which is not
-# always the one built. A separate releases repository has none of this history,
-# so there the tag goes on that repository's own default branch.
-TARGET_FLAGS=()
+# Extra flags for `gh release create`, which decide where its tag goes.
+CREATE_FLAGS=()
 # Without regard to case, as GitHub compares repository names.
-if [[ "${RELEASE_REPO,,}" == "${GITHUB_REPOSITORY,,}" ]]; then
-	TARGET_FLAGS=(--target "$(git rev-parse HEAD)")
+if [[ "${RELEASE_REPO,,}" != "${GITHUB_REPOSITORY,,}" ]]; then
+	# A separate releases repository has none of this history, so its tag goes on
+	# that repository's own default branch. --repo as a flag, not only GH_REPO: gh
+	# otherwise refuses a tag that exists in this checkout but not over there,
+	# which is every re-run of a release first published here.
+	CREATE_FLAGS=(--repo "$RELEASE_REPO")
+elif [[ -z "$RELEASE_BRANCH" ]]; then
+	# At the commit that was built: without it GitHub tags the default branch's
+	# newest commit, which is not always the one built. Not for a branch build,
+	# whose commit may change .github/workflows/ relative to the default branch,
+	# and GitHub will not let the workflow's own token tag such a commit.
+	CREATE_FLAGS=(--target "$(git rev-parse HEAD)")
 fi
 # The signing docs live in the launcher template, which is public. A game's own
 # copy may not exist (one that added the launcher by hand has no docs/), and a
@@ -145,7 +152,7 @@ else
 	gh release create "$TAG" "$RELEASE_DIR"/* \
 		--title "$RELEASE_TITLE" \
 		--notes-file "$NOTES" \
-		${TARGET_FLAGS[@]+"${TARGET_FLAGS[@]}"} \
+		${CREATE_FLAGS[@]+"${CREATE_FLAGS[@]}"} \
 		"${RELEASE_FLAGS[@]}"
 fi
 
