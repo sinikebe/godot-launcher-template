@@ -194,11 +194,13 @@ before other people install it.
 
 ## Making it yours
 
-Everything below is a field on your `LauncherConfig`, apart from one optional
-script for running code of your own, and two Android behaviours set in
-`project.godot`: Back and screen orientation. **Nothing in `addons/launcher/`
-should ever need editing** — that directory is replaced wholesale on every
-sync, so local edits there are silently reverted.
+Most of what follows is a field on your `LauncherConfig`. The rest is one
+optional script for running code of your own, two `project.godot` settings
+that only a new app build can change — whether Back quits from the launcher's
+screen, and screen orientation — and the version stamp, which the launcher
+fills in itself. **Nothing in `addons/launcher/` should ever need editing** —
+that directory is replaced wholesale on every sync, so local edits there are
+silently reverted.
 
 ### Identity
 
@@ -313,10 +315,12 @@ screen.
 The template's `project.godot` sets `window/handheld/orientation=4`. That is
 **Sensor Landscape**, not Sensor: full screen on a phone, the app turns between
 the two landscape directions and never into portrait. Android's manifest gets
-`userLandscape`. Full sensor, landscape or portrait, is `6`.
+`userLandscape`. Full sensor, landscape or portrait, is `6` (`fullUser` in the
+manifest).
 
-Landscape is what the launcher is laid out for. It draws on a 1280×720 base
-stretched to fill the screen. With `6`, it still fits a portrait screen, but
+Landscape is what the launcher is laid out for. It lays out on a 1280×720
+base, scaled evenly until the short side fills the screen, with any extra
+length added to the layout. With `6`, it still fits a portrait screen, but
 the 1280-wide base has to fit the narrow side, so everything is drawn at about
 half the size it has in landscape on the same phone.
 
@@ -324,7 +328,11 @@ Like Back, the setting is read once, at startup, so a content update cannot
 change it. Code can change the orientation itself:
 `DisplayServer.screen_set_orientation()`, called from your game's scenes or
 from `_launcher_opening()`, changes it while the app runs, and that code ships
-in a content pack like any other script.
+in a content pack like any other script. The change lasts until code changes
+it again, so a game that turns to portrait for its own scenes brings players
+back to a portrait launcher unless `_launcher_opening()` turns it back. Desktop
+builds have no orientation and log a warning for the call; guard it with
+`DisplayServer.has_feature(DisplayServer.FEATURE_ORIENTATION)`.
 
 ### Version stamp
 

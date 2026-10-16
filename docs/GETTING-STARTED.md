@@ -155,7 +155,8 @@ The next build picks them up automatically.
 
 Editing those two is the most common mistake: it works until the next sync
 quietly reverts it. Everything you legitimately need is in the config,
-`launcher_hooks.gd` or `locale/`.
+`launcher_hooks.gd`, `locale/`, or the two `project.godot` settings in
+[Making it yours](../README.md#making-it-yours).
 
 Each of them carries a copy of the launcher's MIT `LICENSE`, which is how the
 terms reach you at all — the sync only ever copies those two directories. Leave
@@ -181,6 +182,10 @@ To get back to the launcher from your game, change scene to
 
 On Android, Back inside your game does nothing until your game handles it;
 see [Back on Android](../README.md#back-on-android).
+
+On Android, the template runs in landscape only
+(`window/handheld/orientation=4` in `project.godot`). To allow portrait, see
+[Screen orientation](../README.md#screen-orientation).
 
 ## Staying up to date
 
