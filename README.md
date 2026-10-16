@@ -273,13 +273,14 @@ that in two places only:
   otherwise quits, as `application/config/quit_on_go_back` in your
   `project.godot` says (on unless you turned it off). If your
   `_launcher_opening()` adds a panel of its own, or your main scene is a scene
-  of yours around the launcher, set `get_tree().quit_on_go_back = false` --
-  from `_launcher_opening()`, or from that scene's `_ready()`, which runs after
-  the launcher's -- and handle Back by connecting the launcher's
+  of yours around the launcher, turn the quit off --
+  `launcher.get_tree().quit_on_go_back = false` from `_launcher_opening()`, or
+  `get_tree().quit_on_go_back = false` from that scene's `_ready()`, which runs
+  after the launcher's -- and handle Back by connecting the launcher's
   `back_requested` signal. It is emitted only for a Back that none of the
   launcher's dialogs took, so the Back that closes one never reaches your code
-  as well. Nothing then quits on Back unless your code does. Set it once, as
-  above, rather than switching it as your panels open and close: for the frame
+  as well. Nothing then quits on Back unless your code does. Turn it off once,
+  as above, rather than switching it as your panels open and close: for the frame
   in which Back closes one of its dialogs, the launcher turns the quit off and
   then on again, which undoes a switch your code makes in that same frame.
 - **In your game**, Back does nothing until you handle it, so one stray tap no
@@ -295,10 +296,12 @@ that in two places only:
 
   To have Back quit from your game again, set
   `get_tree().quit_on_go_back = true` from your scene's `_ready()`. The
-  launcher turns the quit off after your scene is created, so setting it any
+  launcher turns the quit off as it leaves the tree, which a scene change does
+  after your scene is created and before its `_ready()`, so setting it any
   earlier, such as in `_init()`, is undone. A game that keeps the launcher in
   the tree, hidden, while it runs is still on the launcher's screen as far as
-  Back goes.
+  Back goes: Back quits as the project setting says, and `back_requested` is
+  emitted.
 
 This is code, so a content update can change it. The project setting is not:
 a content update cannot change it, and it only ever decides the launcher's
