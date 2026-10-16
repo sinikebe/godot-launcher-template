@@ -145,8 +145,8 @@ func _ready() -> void:
 	# Not when an update has already got past checking. The launcher opens again
 	# each time a game returns to it, and a check from RESTART_REQUIRED compares
 	# against the build still mounted, so it would offer an update that is already
-	# downloaded and staged as one to download again. The update button still
-	# checks on request from any of these.
+	# downloaded and staged as one to download again. The update button is not
+	# guarded: from INSTALL_HANDOFF it still checks, after a cancelled installer.
 	var past_checking := UpdateService.state in [
 		UpdateService.State.RESTART_REQUIRED,
 		UpdateService.State.INSTALL_HANDOFF,
