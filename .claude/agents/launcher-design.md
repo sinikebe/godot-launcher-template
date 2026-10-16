@@ -102,10 +102,10 @@ mistake.
   theme's `content_margin_*` plus the font's line height, then account for
   `canvas_items` stretch from the 1280×720 viewport to the device — do not
   assume the numbers in the file are pixels on a phone.
-- **Back and escape.** `UpdateOverlay` has no `ui_cancel` handling, so on
-  Android the system back button quits the game instead of dismissing the
-  dialog. A modal with no way out except its own buttons is a bug on a
-  touch device.
+- **Back and escape.** On Android, Back closes an open `UpdateOverlay`
+  dialog (`_notification()` handles `NOTIFICATION_WM_GO_BACK_REQUEST`).
+  Escape (`ui_cancel`) still does not, so on desktop a dialog has no way out
+  except its own buttons.
 - **Focus.** `_ready()` grabs focus on the first menu button and `_hide_overlay()`
   returns it there. Check that every new control joins that order rather than
   stranding gamepad and keyboard users, and that focus is visible against

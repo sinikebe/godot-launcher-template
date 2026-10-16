@@ -18,6 +18,13 @@ signal custom_button_pressed(label: String)
 ## configured, connecting this takes the Play action over entirely.
 signal play_requested()
 
+## Emitted when Back reaches the launcher's screen and none of the launcher's
+## own dialogs took it. A game that turns get_tree().quit_on_go_back off to
+## handle Back itself here -- a panel of its own, a scene around the launcher --
+## connects this rather than handling NOTIFICATION_WM_GO_BACK_REQUEST, which
+## also arrives for a Back that only closed one of the launcher's dialogs.
+signal back_requested()
+
 ## The game's own script for the launcher's screen, run before it builds
 ## anything when the file exists. See _run_opening_hook().
 const HOOKS_PATH := "res://launcher_hooks.gd"
@@ -98,6 +105,14 @@ var _hooks: Object = null
 
 func _ready() -> void:
 	_config = BuildInfo.config
+	# On this screen Back quits as the game's project settings say, whatever the
+	# scene before left it at. The launcher only closes its own dialogs on Back
+	# and turns the quit off when it leaves for the game; see _notification().
+	# Before the hook, so a game that handles Back here itself -- a panel of its
+	# own, a scene around the launcher -- can turn it off and is not quit from
+	# under. With the override, as Godot read it at startup: a game may have set
+	# it for Android alone, as quit_on_go_back.android.
+	get_tree().quit_on_go_back = bool(ProjectSettings.get_setting_with_override("application/config/quit_on_go_back"))
 	# First, so whatever the game sets up -- its catalogs, a language the player
 	# chose -- is already in force when the screen below is built.
 	_run_opening_hook()
@@ -158,11 +173,29 @@ func _ready() -> void:
 		await UpdateService.check_for_updates()
 
 
-## Follows a language change made while the launcher is showing. The menu and
-## the title translate themselves; the nodes refilled here are filled with tr()
-## instead -- so a placeholder can be filled after translating -- and nothing
-## else would ever refill them.
+## Handles Back, and follows a language change made while the launcher is
+## showing. The menu and the title translate themselves; the nodes refilled here
+## are filled with tr() instead -- so a placeholder can be filled after
+## translating -- and nothing else would ever refill them.
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		# Before _ready() there is no dialog to close, and _overlay is not set yet.
+		if not _screen_built:
+			return
+		# In the tree, not just visible: a launcher kept hidden beside the game
+		# can hold a dialog the player cannot see, which must not eat their Back.
+		if _overlay.is_visible_in_tree():
+			_hide_overlay()
+			_hold_quit_for_this_back()
+		else:
+			back_requested.emit()
+		return
+	if what == NOTIFICATION_EXIT_TREE:
+		# Leaving for the game, whose run must not end on one stray Back. Switched
+		# off at runtime, not in project.godot: a content pack cannot change a
+		# project setting. The game turns it back on in its own scene if it wants.
+		get_tree().quit_on_go_back = false
+		return
 	if what == NOTIFICATION_PREDELETE:
 		# A hooks script that extends Object is neither reference-counted nor in
 		# the tree, so nothing else would ever free it.
@@ -656,6 +689,26 @@ func _fit_overlay() -> void:
 	# something recalculates the scroll's minimum size, it keeps its old height.
 	# A window made taller would otherwise leave the text in its old, smaller box.
 	_overlay_scroll.update_minimum_size()
+
+
+## Keeps the Back that just closed a dialog from quitting as well. Godot asks
+## quit_on_go_back in root's go_back_requested, emitted straight after this
+## notification, so the game's setting is put back only after that, deferred.
+func _hold_quit_for_this_back() -> void:
+	var tree := get_tree()
+	if not tree.quit_on_go_back:
+		return
+	tree.quit_on_go_back = false
+	_release_quit.call_deferred()
+
+
+## Ends _hold_quit_for_this_back(), unless the launcher left the tree in between
+## -- a tap on Play handled in the same frame as the Back. NOTIFICATION_EXIT_TREE
+## has then already turned the quit off for the game, and turning it back on
+## would let one stray Back end the run.
+func _release_quit() -> void:
+	if is_inside_tree():
+		get_tree().quit_on_go_back = true
 
 
 func _hide_overlay() -> void:
