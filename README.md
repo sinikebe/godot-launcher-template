@@ -195,9 +195,10 @@ before other people install it.
 ## Making it yours
 
 Everything below is a field on your `LauncherConfig`, apart from one optional
-script for running code of your own. **Nothing in `addons/launcher/` should
-ever need editing** — that directory is replaced wholesale on every sync, so
-local edits there are silently reverted.
+script for running code of your own, and two Android behaviours set in
+`project.godot`: Back and screen orientation. **Nothing in `addons/launcher/`
+should ever need editing** — that directory is replaced wholesale on every
+sync, so local edits there are silently reverted.
 
 ### Identity
 
@@ -306,6 +307,24 @@ that in two places only:
 This is code, so a content update can change it. The project setting is not:
 a content update cannot change it, and it only ever decides the launcher's
 screen.
+
+### Screen orientation
+
+The template's `project.godot` sets `window/handheld/orientation=4`. That is
+**Sensor Landscape**, not Sensor: full screen on a phone, the app turns between
+the two landscape directions and never into portrait. Android's manifest gets
+`userLandscape`. Full sensor, landscape or portrait, is `6`.
+
+Landscape is what the launcher is laid out for. It draws on a 1280×720 base
+stretched to fill the screen. With `6`, it still fits a portrait screen, but
+the 1280-wide base has to fit the narrow side, so everything is drawn at about
+half the size it has in landscape on the same phone.
+
+Like Back, the setting is read once, at startup, so a content update cannot
+change it. Code can change the orientation itself:
+`DisplayServer.screen_set_orientation()`, called from your game's scenes or
+from `_launcher_opening()`, changes it while the app runs, and that code ships
+in a content pack like any other script.
 
 ### Version stamp
 

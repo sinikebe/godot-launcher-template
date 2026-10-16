@@ -57,9 +57,12 @@ anything in that stack changes size.
 
 What to exercise, since the launcher ships to phones:
 
-- **Portrait.** `project.godot` sets `window/handheld/orientation`. The update
-  bar is a four-child `HBoxContainer` — status label, progress bar, two
-  buttons. At ~400px wide, work out whether that fits or needs to wrap.
+- **Portrait.** The template sets `window/handheld/orientation=4`, Sensor
+  Landscape, so it never runs in portrait on a phone; a game may set `6`.
+  The 1280×720 `canvas_items`/`expand` base never lays out narrower than 1280
+  units: portrait makes the layout taller (1280×2844 on a 1080×2400 screen)
+  and draws it at about 56% of its landscape size. Check legibility and touch
+  targets at that scale, not wrapping at ~400px.
 - **The nine-position grid.** `title_*_align` × `menu_*_align` gives 81
   combinations. They are all reachable from config, so a game will find the
   bad ones. Look for pairs that collide — title and menu both centre-centre,

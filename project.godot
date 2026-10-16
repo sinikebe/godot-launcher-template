@@ -24,6 +24,8 @@ window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+; 4 is Sensor Landscape: turns between the landscape directions, never
+; portrait. 6 is full sensor. See "Screen orientation" in the README.
 window/handheld/orientation=4
 
 [launcher]
