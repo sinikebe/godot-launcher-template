@@ -6,9 +6,13 @@ name: CI
 # This workflow never touches a secret and never publishes anything, which is
 # what makes it safe to run on pull requests from forks.
 #
-# The CI_RUNNER repository variable picks the runner label it runs on, with no
-# edit to this file; unset is ubuntu-latest. A pull request from a fork always
-# gets ubuntu-latest: its code would otherwise run on your own machine. See
+# On a private repository, the CI_RUNNER repository variable picks the runner
+# label it runs on, with no edit to this file; unset, and on any public
+# repository, it is ubuntu-latest. A pull request from a fork, or the launcher
+# sync's own pull request, also gets ubuntu-latest. That keeps an unmodified
+# workflow off your runner, but it is not a security boundary: a pull request
+# runs the workflow file from the pull request, so it can name your runner's
+# label itself. Never register a self-hosted runner on a public repository. See
 # docs/UPDATES.md, "Running the workflows on your own machine".
 
 on:
@@ -33,7 +37,7 @@ jobs:
   build:
     name: Export check
     # `a && b || c`: an unset CI_RUNNER is empty, which is false, and falls through.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.repository.private && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'launcher-sync')) && vars.CI_RUNNER || 'ubuntu-latest' }}
 
     steps:
       - name: Check out
@@ -69,7 +73,9 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        # Pinned to a commit: a third-party action runs as this job, before the steps
+        # that hold the signing key and, in release.yml, RELEASE_TOKEN.
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: "platform-tools build-tools;34.0.0"
 

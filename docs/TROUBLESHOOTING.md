@@ -99,8 +99,9 @@ would make the publish fail at the end. The error says which:
 
 - **No `RELEASE_TOKEN` secret.** The workflow's own token can write only to the
   repository it runs in.
-- **It cannot be read with `RELEASE_TOKEN`.** A typo in `RELEASE_REPO`, or a
-  token that was not given that repository.
+- **A classic personal access token.** It reaches every repository you can.
+  Use a fine-grained token limited to the releases repository.
+- **It does not exist, or is not visible.** Usually a typo in `RELEASE_REPO`.
 - **It is private.** Players' apps download with no token. Make it public; it
   holds only releases.
 - **It has no commits.** GitHub cannot create a release tag in an empty

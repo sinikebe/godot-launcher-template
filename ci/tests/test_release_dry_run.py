@@ -615,14 +615,30 @@ class KeepInStep(unittest.TestCase):
         self.assertEqual(len(release), 1)
         self.assertEqual(release, ci)
 
-    def test_a_fork_pull_request_never_runs_on_a_runner_of_your_own(self):
-        guard = "github.event.pull_request.head.repo.full_name == github.repository"
+    def runs_on(self, name):
+        text = (REPO / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        found = re.findall(r"^    runs-on: (.+)$", text, re.M)
+        self.assertEqual(len(found), 1, name)
+        return found[0]
+
+    def test_your_own_runner_is_used_only_on_a_private_repository(self):
+        for name, var in (("ci.yml", "CI_RUNNER"), ("launcher-version.yml", "CI_RUNNER"),
+                          ("release.yml", "RELEASE_RUNNER")):
+            with self.subTest(workflow=name):
+                runs_on = self.runs_on(name)
+                self.assertTrue(runs_on.startswith("${{ github.event.repository.private && "), runs_on)
+                self.assertTrue(runs_on.endswith("&& vars.%s || 'ubuntu-latest' }}" % var), runs_on)
+
+    def test_a_fork_or_the_sync_pull_request_never_runs_on_a_runner_of_your_own(self):
         for name in ("ci.yml", "launcher-version.yml"):
-            text = (REPO / ".github" / "workflows" / name).read_text(encoding="utf-8")
-            for runs_on in re.findall(r"^    runs-on: (.+)$", text, re.M):
-                with self.subTest(workflow=name):
-                    self.assertIn(guard, runs_on)
-                    self.assertTrue(runs_on.endswith("&& vars.CI_RUNNER || 'ubuntu-latest' }}"), runs_on)
+            with self.subTest(workflow=name):
+                runs_on = self.runs_on(name)
+                self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", runs_on)
+                self.assertIn("github.event.pull_request.head.ref != 'launcher-sync'", runs_on)
+
+    def test_the_sync_always_runs_on_githubs_machine(self):
+        # It runs scripts just pulled from the template, before anyone reviews them.
+        self.assertEqual(self.runs_on("sync-launcher.yml"), "ubuntu-latest")
 
     def test_the_publish_step_of_the_real_workflow_passes_what_publish_release_reads(self):
         real = self.step(self.release, "Publish release")

@@ -22,7 +22,8 @@ name: Release
 #   RELEASE_REPO    owner/name of a separate public repository that holds only
 #                   releases, for a game whose code is private. Needs the
 #                   RELEASE_TOKEN secret. Unset publishes here.
-#   RELEASE_RUNNER  the runner label this job runs on. Unset is ubuntu-latest.
+#   RELEASE_RUNNER  the runner label this job runs on, on a private repository
+#                   only. Unset is ubuntu-latest.
 # See docs/UPDATES.md, "Publishing from a private repository" and "Running the
 # workflows on your own machine".
 
@@ -73,7 +74,9 @@ env:
 jobs:
   release:
     name: Build and publish
-    runs-on: ${{ vars.RELEASE_RUNNER || 'ubuntu-latest' }}
+    # Private repositories only: a self-hosted runner registered on a public one
+    # can be named by any pull request's own copy of a workflow.
+    runs-on: ${{ github.event.repository.private && vars.RELEASE_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: write # create the release and upload its assets
 
@@ -83,6 +86,9 @@ jobs:
         with:
           # content_version is the commit count, so the full history is required.
           fetch-depth: 0
+          # Nothing here authenticates with git: publishing goes through gh. Left
+          # in .git/config, the write token would be readable by every later step.
+          persist-credentials: false
 
       - name: Check the release repository
         # First, so a missing token or an unusable releases repository fails in
@@ -100,7 +106,9 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        # Pinned to a commit: a third-party action runs as this job, before the steps
+        # that hold the signing key and, in release.yml, RELEASE_TOKEN.
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: "platform-tools build-tools;34.0.0"
 
@@ -251,7 +259,10 @@ jobs:
         run: bash ci/publish_release.sh
 
       - name: Shred the signing key
-        # Runners are ephemeral, but the keystore is removed explicitly so it
-        # cannot survive into any later step of this job.
+        # Removed explicitly so it cannot survive into any later step of this job.
+        # GitHub's machines are thrown away after the job; on a self-hosted runner
+        # nothing else guarantees it.
         if: always()
-        run: rm -rf "${RUNNER_TEMP}/launcher-signing"
+        run: |
+          find "${RUNNER_TEMP}/launcher-signing" -type f -exec shred -u {} + 2>/dev/null || true
+          rm -rf "${RUNNER_TEMP}/launcher-signing"

@@ -12,13 +12,21 @@
 #   * a public repository, because players' apps download with no token at all;
 #   * at least one commit in it, because GitHub cannot create a release tag in an
 #     empty repository.
+# It cannot tell whether the token may write there: any token can read a public
+# repository. A token given the wrong repository fails at the publish step.
 set -euo pipefail
 
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
 RELEASE_REPO="${RELEASE_REPO:-$GITHUB_REPOSITORY}"
 
-if [[ "$RELEASE_REPO" == "$GITHUB_REPOSITORY" ]]; then
-	echo "Releases are published to this repository, ${RELEASE_REPO}."
+if [[ "${RUNNER_ENVIRONMENT:-}" == "self-hosted" ]]; then
+	echo "::warning::This release runs on a self-hosted runner. The signing key and RELEASE_TOKEN are exposed to anything an earlier job left on it; see docs/UPDATES.md, \"Running the workflows on your own machine\"."
+fi
+
+# GitHub treats repository names without regard to case, and so does the
+# workflow's own comparison when it picks the token.
+if [[ "${RELEASE_REPO,,}" == "${GITHUB_REPOSITORY,,}" ]]; then
+	echo "Releases are published to this repository, ${GITHUB_REPOSITORY}."
 	exit 0
 fi
 
@@ -39,8 +47,16 @@ if [[ "${RELEASE_TOKEN_SET:-}" != "true" ]]; then
 	exit 1
 fi
 
+# A classic token reaches every repository its owner can, the game's private
+# source included, and it would ship code to every player. Matched by its prefix
+# with a builtin, so the token itself is never printed or put in argv.
+if [[ "${GH_TOKEN:-}" == ghp_* ]]; then
+	echo "::error::RELEASE_TOKEN is a classic personal access token, which can reach every repository you can. Use a fine-grained token limited to ${RELEASE_REPO}." >&2
+	exit 1
+fi
+
 if ! private="$(gh api "repos/${RELEASE_REPO}" --jq '.private' 2>/dev/null)"; then
-	echo "::error::${RELEASE_REPO} cannot be read with RELEASE_TOKEN: it does not exist, or the token was not given access to it." >&2
+	echo "::error::${RELEASE_REPO} does not exist, or is not visible to RELEASE_TOKEN." >&2
 	exit 1
 fi
 if [[ "$private" != "false" ]]; then

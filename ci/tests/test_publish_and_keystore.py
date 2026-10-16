@@ -285,6 +285,10 @@ class PublishRelease(PublishBase):
         self.assertNotIn("github.com/me/game/", text)
         self.assertIn("Published v0.1.0+3: https://github.com/me/game-releases/releases/tag/v0.1.0+3", result.stdout)
 
+    def test_this_repository_named_in_another_case_is_still_this_repository(self):
+        self.publish(RELEASE_REPO="Me/Game")
+        self.assertIn("--target", self.gh_calls()[1])
+
     def test_a_separate_release_repo_is_not_asked_to_tag_a_commit_it_does_not_have(self):
         self.publish(RELEASE_REPO="me/game-releases")
         self.assertNotIn("--target", self.gh_calls()[1])
@@ -334,7 +338,7 @@ class CheckReleaseRepo(Sandbox):
         return self.gh_log.read_text(encoding="utf-8").splitlines() if self.gh_log.exists() else []
 
     def test_publishing_here_needs_no_check_and_calls_nothing(self):
-        for env in ({"RELEASE_REPO": ""}, {"RELEASE_REPO": "me/game"}):
+        for env in ({"RELEASE_REPO": ""}, {"RELEASE_REPO": "me/game"}, {"RELEASE_REPO": "ME/Game"}):
             with self.subTest(env=env):
                 result = self.check(RELEASE_TOKEN_SET="false", **env)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -362,10 +366,29 @@ class CheckReleaseRepo(Sandbox):
                 self.assertIn("not an owner/name", result.stderr)
         self.assertEqual(self.calls(), [])
 
-    def test_a_repository_the_token_cannot_read_is_reported(self):
+    def test_a_repository_that_cannot_be_seen_is_reported(self):
         result = self.check(FAKE_REPO_READABLE="0")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("cannot be read with RELEASE_TOKEN", result.stderr)
+        self.assertIn("does not exist, or is not visible", result.stderr)
+
+    def test_a_classic_token_is_refused_without_being_printed(self):
+        result = self.check(GH_TOKEN="ghp_secretvalue")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("classic personal access token", result.stderr)
+        self.assertNotIn("secretvalue", result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_fine_grained_token_is_accepted(self):
+        result = self.check(GH_TOKEN="github_pat_value")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_self_hosted_release_runner_is_warned_about(self):
+        for env, warned in (({"RUNNER_ENVIRONMENT": "self-hosted"}, True),
+                            ({"RUNNER_ENVIRONMENT": "github-hosted"}, False), ({}, False)):
+            with self.subTest(env=env):
+                result = self.check(RELEASE_REPO="", **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("::warning::This release runs on a self-hosted runner" in result.stdout, warned)
 
     def test_a_private_releases_repository_is_refused(self):
         # Players' apps download with no token; a private repo's releases are out of reach.

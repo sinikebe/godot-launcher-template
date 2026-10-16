@@ -398,8 +398,11 @@ nothing, and the token that publishes lives only in the game's Actions secrets.
    commits.
 2. **Create a token** that can publish there: a fine-grained personal access
    token, with *Repository access* set to that one repository and *Contents* set to
-   *Read and write*. When it expires, releases stop publishing until you replace
-   it; installed copies are not affected.
+   *Read and write*. A classic token is refused: it reaches every repository you
+   can, your private source included. Treat this one like the signing key, since
+   it can ship code to every player: give it an expiry, and replace it when
+   someone with access to the secrets leaves. When it expires, releases stop
+   publishing until you replace it; installed copies are not affected.
 3. **In the game's repository**, under *Settings → Secrets and variables →
    Actions*: add the token as the secret `RELEASE_TOKEN`, and the releases
    repository's `owner/name` as the variable `RELEASE_REPO`.
@@ -408,13 +411,17 @@ nothing, and the token that publishes lives only in the game's Actions secrets.
 
 The release workflow then publishes there: the release, its tag, its assets and
 every link in its notes. Its first step checks the setup before anything is built,
-and fails in seconds with the fix when the token is missing, or the releases
-repository is private, empty or out of the token's reach. Pull-request checks
-read `RELEASE_REPO` too, and need no token for a public repository.
+and fails in seconds with the fix when the token is missing or classic, or the
+releases repository does not exist, is private or is empty. It cannot tell
+whether the token may write there, since any token can read a public repository:
+a token given the wrong repository fails at the publish step. Pull-request
+checks read `RELEASE_REPO` too, and need no token for a public repository.
 
-What becomes public is what a release carries: the version numbers, the
-patch notes, which are the commit subjects of `main`, and the short commit hash
-each build came from. No code is published.
+What becomes public is what a release carries: the version numbers, the patch
+notes, which are the commit subjects of the branch the release ran on, that
+branch's name for a branch build, and the short commit hash each build came
+from. The exported game is published too, and a Godot pack decompiles back to
+its scripts, so nothing secret belongs in the project.
 
 ### Moving a game that has already shipped
 
@@ -442,12 +449,19 @@ which would otherwise show up as drift on every launcher sync:
 
 | Variable | Jobs | Unset |
 |---|---|---|
-| `CI_RUNNER` | the pull-request checks (`ci.yml`, `launcher-version.yml`) and the launcher sync | `ubuntu-latest` |
+| `CI_RUNNER` | the pull-request checks (`ci.yml`, `launcher-version.yml`) | `ubuntu-latest` |
 | `RELEASE_RUNNER` | the release (`release.yml`) | `ubuntu-latest` |
 
-Each takes one runner label, such as `self-hosted`. A pull request from a fork
-always runs on `ubuntu-latest` whatever `CI_RUNNER` says: its code would
-otherwise run on your machine.
+Each takes one runner label, and both are ignored on a public repository.
+**Never register a self-hosted runner on a public repository.** A pull request
+runs the workflow file from the pull request, so anyone who can open one can
+name your runner's label in it and run code there. The workflows send a fork's
+pull request to `ubuntu-latest`, but that only keeps an unmodified workflow off
+your runner; it is not a security boundary. On a private repository, keep
+*Run workflows from fork pull requests* turned off.
+
+The launcher sync, and the pull request it opens, always run on `ubuntu-latest`:
+they run scripts just pulled from the template, before you have reviewed them.
 
 The machine needs Linux on x86_64, bash 4, git, Python 3, curl, unzip and `gh`. The
 workflows install Java, the Android SDK and Godot themselves, and keep Godot in
@@ -455,15 +469,27 @@ the runner's home between jobs. The boot check and the GDScript tests run with
 a scratch home, so `user://` starts empty on every run, as it does on GitHub's
 machines. `shellcheck` is installed with `sudo apt-get` only when it is missing.
 
-Before moving the release onto your own machine, know that:
+A pull request's code runs on `CI_RUNNER` before anyone reviews it, and
+anything it leaves on the machine runs in the next job there: in the Godot
+install, the JDK or Android SDK, the workspace's `.git`, or a process still
+running. So:
 
-- the signing keystore and `RELEASE_TOKEN` pass through it;
-- uploading to GitHub's release storage can be far slower from it than from
-  GitHub's own machines. Measured once from a home connection, a 245 MB release
-  took 22 minutes to upload, against 8 seconds from GitHub's.
+- **Keep the release off the CI machine.** The safest `RELEASE_RUNNER` is none.
+  If you set one, give it a different machine, or at least a different OS user
+  with its own home and its own runner registration, and give each runner a
+  label of its own rather than just `self-hosted`. A release job holds the
+  signing keystore, its password and `RELEASE_TOKEN`, and the release step warns
+  when it runs on a self-hosted runner.
+- **Run the runner as a dedicated user**, never your own account. The workflows
+  replace `~/godot` and Godot's export templates, and overwrite Godot's editor
+  settings, in that user's home.
+- **Do not give that user sudo.** Install `shellcheck` yourself.
+- **Prefer ephemeral runners**, which start clean for every job
+  (`./config.sh --ephemeral`, or a VM or container reset after each one).
 
-The launcher sync also runs on `CI_RUNNER`, and it runs the scripts it has just
-pulled from the template.
+Uploading to GitHub's release storage can also be far slower from your machine
+than from GitHub's. Measured once from one self-hosted runner, a 245 MB release
+took 22 minutes to upload, against 8 seconds from GitHub's machines.
 
 ## Trying a change on a device before it ships
 

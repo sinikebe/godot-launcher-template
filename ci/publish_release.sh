@@ -47,7 +47,8 @@ export GH_REPO="$RELEASE_REPO"
 # always the one built. A separate releases repository has none of this history,
 # so there the tag goes on that repository's own default branch.
 TARGET_FLAGS=()
-if [[ "$RELEASE_REPO" == "$GITHUB_REPOSITORY" ]]; then
+# Without regard to case, as GitHub compares repository names.
+if [[ "${RELEASE_REPO,,}" == "${GITHUB_REPOSITORY,,}" ]]; then
 	TARGET_FLAGS=(--target "$(git rev-parse HEAD)")
 fi
 # The signing docs live in the launcher template, which is public. A game's own
