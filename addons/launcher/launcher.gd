@@ -142,7 +142,17 @@ func _ready() -> void:
 		_first_button.grab_focus()
 	_apply_layout.call_deferred()
 
-	if _config.check_on_launch and _config.updates_enabled():
+	# Not when an update has already got past checking. The launcher opens again
+	# each time a game returns to it, and a check from RESTART_REQUIRED compares
+	# against the build still mounted, so it would offer an update that is already
+	# downloaded and staged as one to download again. The update button still
+	# checks on request from any of these.
+	var past_checking := UpdateService.state in [
+		UpdateService.State.RESTART_REQUIRED,
+		UpdateService.State.INSTALL_HANDOFF,
+		UpdateService.State.NEEDS_PERMISSION,
+	]
+	if _config.check_on_launch and _config.updates_enabled() and not past_checking:
 		# Let the launcher paint before touching the network.
 		await get_tree().create_timer(0.4).timeout
 		await UpdateService.check_for_updates()
