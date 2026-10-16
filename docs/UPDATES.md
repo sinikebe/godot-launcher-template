@@ -69,6 +69,10 @@ Published as a release asset and fetched from a single fixed URL:
 https://github.com/<owner>/<game>/releases/latest/download/manifest.json
 ```
 
+`<owner>/<game>` is `update_repo` in `launcher_config.tres`: the game's own
+repository, or the public releases repository a private game publishes to (see
+[Publishing from a private repository](#publishing-from-a-private-repository)).
+
 `/releases/latest/download/<name>` always redirects to the newest release, so a
 shipped build never has to know a tag, call the GitHub API, or worry about rate
 limits. That is also why every asset name is version-free — `<game>.apk`, not
@@ -123,9 +127,15 @@ Every release carries its own notes, and the menu shows them *before* the
 download starts — so nobody is asked to spend 50 MB on an unexplained update.
 
 They are generated, not hand-written. [`ci/collect_changes.sh`](../ci/collect_changes.sh)
-takes the commit subjects between the previous release tag and `HEAD`, drops the
-housekeeping ones (`chore`, `ci:`, `bump `, `wip`, `revert`, merges), and hands
-the rest to the manifest builder. The same list goes into the GitHub release body.
+takes the commit subjects since the commit the latest release was built from,
+which that release's `manifest.json` records, and drops the housekeeping ones
+(`chore`, `ci:`, `bump `, `wip`, `revert`, merges). Without a manifest to read,
+it starts at the newest `v<name>+<n>` tag, and with neither, at the first commit.
+
+A release's notes are at most 20 lines. Past that, the 19 newest are kept and the
+last line says how many were left out, as in `…and 6 more changes.` That one list
+is what the manifest carries, what the build has baked in and what the GitHub
+release body shows, so the game and the release page always agree.
 
 **Write commit subjects on `main` as if a player will read them, because one
 will.** Squash-merging a PR with a tidy subject is the easiest way to get this
@@ -354,7 +364,8 @@ sharing builds, not after.
 ## Releasing a change
 
 Merge to `main`. The workflow exports, hashes, writes the manifest, and publishes
-the release tagged `v<version_name>+<content_version>`.
+the release tagged `v<version_name>+<content_version>`, here or in the
+[releases repository](#publishing-from-a-private-repository) `RELEASE_REPO` names.
 
 `version_name` has to start with an ASCII letter or digit and use only ASCII letters, digits, `.`, `_` and `-`,
 with no `..`. It ends up in the tag, in `export_presets.cfg`, in a GDScript constant and in a shell
@@ -370,6 +381,89 @@ that cannot actually deliver the change — bump it and merge again to correct.
 A `binary_version` bump is the one change worth putting on a device first, since
 installing over the top is the part no local test covers. See
 [Trying a change on a device before it ships](#trying-a-change-on-a-device-before-it-ships).
+
+## Publishing from a private repository
+
+The app downloads its updates with no token, so the releases it reads have to be
+public. A token in the app is not an answer: anyone can pull it out of the APK, a
+token that can read a private repository's releases can read all of its code,
+and when it expires every installed copy stops updating for good.
+
+So a game whose code is private publishes its releases to a second, **public
+repository that holds only releases**. The code stays private, players need
+nothing, and the token that publishes lives only in the game's Actions secrets.
+
+1. **Create the releases repository**, public, for example `you/your-game-releases`.
+   Tick *Add a README*: GitHub cannot create a release tag in a repository with no
+   commits.
+2. **Create a token** that can publish there: a fine-grained personal access
+   token, with *Repository access* set to that one repository and *Contents* set to
+   *Read and write*. When it expires, releases stop publishing until you replace
+   it; installed copies are not affected.
+3. **In the game's repository**, under *Settings → Secrets and variables →
+   Actions*: add the token as the secret `RELEASE_TOKEN`, and the releases
+   repository's `owner/name` as the variable `RELEASE_REPO`.
+4. **Point the app at it:** set `update_repo` in `launcher_config.tres` to the
+   releases repository.
+
+The release workflow then publishes there: the release, its tag, its assets and
+every link in its notes. Its first step checks the setup before anything is built,
+and fails in seconds with the fix when the token is missing, or the releases
+repository is private, empty or out of the token's reach. Pull-request checks
+read `RELEASE_REPO` too, and need no token for a public repository.
+
+What becomes public is what a release carries: the version numbers, the
+patch notes, which are the commit subjects of `main`, and the short commit hash
+each build came from. No code is published.
+
+### Moving a game that has already shipped
+
+Installed copies poll the `update_repo` they were built with, so they have to be
+told about the new repository while the old one is still public. A content update
+is enough: the launcher reads its config after mounting the content pack.
+
+1. Set up the releases repository and `RELEASE_TOKEN` as above, but do not set
+   `RELEASE_REPO` yet.
+2. Set `update_repo` to the releases repository and merge. That release is still
+   published here, where every installed copy looks, and once a copy has it, it
+   polls the releases repository.
+3. Set `RELEASE_REPO`, then run the release again on the same commit (*Actions →
+   Release → Run workflow*), so the releases repository holds that release too.
+4. Make the code repository private only once players have had time to update.
+   A copy that never fetched step 2's release keeps polling here, and stops
+   updating the moment this repository goes private.
+
+## Running the workflows on your own machine
+
+Actions minutes are charged on a private repository, so a game may run its jobs
+on a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners)
+instead. Two repository variables pick the runner, with no edit to the workflows,
+which would otherwise show up as drift on every launcher sync:
+
+| Variable | Jobs | Unset |
+|---|---|---|
+| `CI_RUNNER` | the pull-request checks (`ci.yml`, `launcher-version.yml`) and the launcher sync | `ubuntu-latest` |
+| `RELEASE_RUNNER` | the release (`release.yml`) | `ubuntu-latest` |
+
+Each takes one runner label, such as `self-hosted`. A pull request from a fork
+always runs on `ubuntu-latest` whatever `CI_RUNNER` says: its code would
+otherwise run on your machine.
+
+The machine needs Linux on x86_64, bash 4, git, Python 3, curl, unzip and `gh`. The
+workflows install Java, the Android SDK and Godot themselves, and keep Godot in
+the runner's home between jobs. The boot check and the GDScript tests run with
+a scratch home, so `user://` starts empty on every run, as it does on GitHub's
+machines. `shellcheck` is installed with `sudo apt-get` only when it is missing.
+
+Before moving the release onto your own machine, know that:
+
+- the signing keystore and `RELEASE_TOKEN` pass through it;
+- uploading to GitHub's release storage can be far slower from it than from
+  GitHub's own machines. Measured once from a home connection, a 245 MB release
+  took 22 minutes to upload, against 8 seconds from GitHub's.
+
+The launcher sync also runs on `CI_RUNNER`, and it runs the scripts it has just
+pulled from the template.
 
 ## Trying a change on a device before it ships
 

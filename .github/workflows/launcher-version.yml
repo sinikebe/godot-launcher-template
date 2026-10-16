@@ -29,7 +29,9 @@ concurrency:
 jobs:
   check:
     name: Launcher version bump
-    runs-on: ubuntu-latest
+    # The CI_RUNNER repository variable, as in ci.yml, and never for a fork's
+    # pull request.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER || 'ubuntu-latest' }}
 
     steps:
       - name: Check out

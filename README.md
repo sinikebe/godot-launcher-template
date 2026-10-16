@@ -167,8 +167,10 @@ repository made from the template, and it does nothing here, so edit the
 copies by hand before your first release:
 
 - **`launcher_config.tres`**: set `update_repo` to your game's own
-  `owner/name`. Left as the template's, your game checks the template's
-  releases for updates, and can be offered the demo's content pack as one.
+  `owner/name`, or to the public releases repository a private game
+  [publishes to](docs/UPDATES.md#publishing-from-a-private-repository). Left
+  as the template's, your game checks the template's releases for updates,
+  and can be offered the demo's content pack as one.
   Set `play_scene` to the scene that used to be your main scene, or Play has
   nothing to start. Set `game_title` and `tagline`, and clear `extra_buttons`
   unless you want the demo's Settings button.

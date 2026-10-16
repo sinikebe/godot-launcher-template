@@ -88,13 +88,14 @@ def options_of(text, number):
 
 FAKE_GH = """#!/usr/bin/env bash
 echo "$@" >> "$FAKE_GH_LOG"
+echo "${GH_REPO:-}" >> "$FAKE_GH_LOG.repo"
 if [[ "$FAKE_GH_MODE" == ok ]]; then
   out=""
   while [[ $# -gt 0 ]]; do
     [[ "$1" == --output ]] && out="$2"
     shift
   done
-  printf '{"changelog": []}' > "$out"
+  if [[ -n "${FAKE_GH_MANIFEST:-}" ]]; then printf '%s' "$FAKE_GH_MANIFEST" > "$out"; else printf '{"changelog": []}' > "$out"; fi
   exit 0
 fi
 exit 1
@@ -258,14 +259,17 @@ class CollectChanges(Sandbox):
         self.assertFalse((self.root / "build/notes/previous.json").exists())
         self.assertFalse(self.gh_log.exists())
 
-    def test_with_a_token_the_previous_manifest_is_carried_forward(self):
+    def test_with_a_token_the_latest_manifest_is_carried_forward(self):
         self.commit("a")
         self.git("tag", "v0.1.0+1")
         self.commit("b")
         result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok")
         self.assertEqual(json.loads(self.read("build/notes/previous.json")), {"changelog": []})
-        self.assertIn("release download v0.1.0+1 --pattern manifest.json", self.gh_log.read_text())
+        # No tag: gh's latest release, which is what /releases/latest/ serves players.
+        self.assertIn("release download --pattern manifest.json", self.gh_log.read_text())
         self.assertIn("Carried forward", result.stdout)
+        # A manifest with no commit leaves the tag to say where the notes start.
+        self.assertEqual(self.changes(), ["b"])
 
     def test_a_failed_download_does_not_fail_the_build(self):
         self.commit("a")
@@ -277,10 +281,121 @@ class CollectChanges(Sandbox):
         self.assertIn("No previous manifest to carry forward", result.stdout)
         self.assertEqual(self.changes(), ["b"])
 
-    def test_the_first_release_never_calls_gh(self):
+    def test_the_first_release_finds_no_manifest_and_describes_the_whole_history(self):
         self.commit("a")
-        self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok")
-        self.assertFalse(self.gh_log.exists())
+        self.commit("b")
+        result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changes(), ["b", "a"])
+        self.assertIn("No previous release found", result.stdout)
+        self.assertFalse((self.root / "build/notes/previous.json").exists())
+
+    # -- where the notes start: the latest release's own commit -------------
+    def manifest(self, commit, changes=("before",)):
+        return json.dumps({"commit": commit, "changelog": [{"content_version": 9, "changes": list(changes)}]})
+
+    def test_the_notes_start_at_the_commit_the_latest_release_was_built_from(self):
+        # A releases-only repository shares none of this history, so no tag is here.
+        self.commit("old")
+        self.commit("released")
+        released = self.git("rev-parse", "--short=8", "HEAD")
+        self.commit("new one")
+        self.commit("new two")
+        result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok",
+                                 FAKE_GH_MANIFEST=self.manifest(released))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changes(), ["new two", "new one"])
+        self.assertIn("Previous release: commit " + released, result.stdout)
+
+    def test_the_manifests_commit_wins_over_a_tag_on_another_commit(self):
+        # The tag GitHub made on the default branch's tip rather than on the commit
+        # built: the commits between them would otherwise be in no release's notes.
+        self.commit("a")
+        released = self.git("rev-parse", "--short=8", "HEAD")
+        self.commit("landed during the build")
+        self.git("tag", "v0.1.0+2")
+        self.commit("c")
+        self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok",
+                        FAKE_GH_MANIFEST=self.manifest(released))
+        self.assertEqual(self.changes(), ["c", "landed during the build"])
+
+    def test_release_repo_is_where_gh_looks(self):
+        self.commit("a")
+        self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail",
+                        GITHUB_REPOSITORY="me/game", RELEASE_REPO="me/game-releases")
+        self.assertEqual(pathlib.Path(str(self.gh_log) + ".repo").read_text().split(), ["me/game-releases"])
+
+    def test_without_release_repo_gh_looks_in_this_repository(self):
+        self.commit("a")
+        self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail", GITHUB_REPOSITORY="me/game")
+        self.assertEqual(pathlib.Path(str(self.gh_log) + ".repo").read_text().split(), ["me/game"])
+
+    def test_a_commit_not_in_this_history_falls_back_to_the_tag(self):
+        self.commit("a")
+        self.git("tag", "v0.1.0+1")
+        self.commit("b")
+        result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok",
+                                 FAKE_GH_MANIFEST=self.manifest("deadbeef"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not in this history", result.stdout)
+        self.assertEqual(self.changes(), ["b"])
+
+    def test_a_commit_that_is_not_a_hash_is_never_handed_to_git(self):
+        self.commit("a")
+        self.commit("b")
+        for bad in ("--output=x", "HEAD~1", "a b", "", 7, None):
+            with self.subTest(commit=bad):
+                result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok",
+                                         FAKE_GH_MANIFEST=json.dumps({"commit": bad, "changelog": []}))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.changes(), ["b", "a"])
+                self.assertFalse((self.root / "x").exists())
+
+    def test_a_rerun_of_the_latest_release_keeps_its_notes(self):
+        self.commit("a")
+        self.commit("b")
+        head = self.git("rev-parse", "--short=8", "HEAD")
+        result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok",
+                                 FAKE_GH_MANIFEST=self.manifest(head, ["b", "what it said"]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changes(), ["b", "what it said"])
+        self.assertIn("reusing its notes", result.stdout)
+
+    def test_a_stale_previous_manifest_is_not_carried_forward(self):
+        self.commit("a")
+        notes = self.root / "build" / "notes"
+        notes.mkdir(parents=True)
+        (notes / "previous.json").write_text('{"changelog": [{"content_version": 1}]}', encoding="utf-8")
+        self.run_script("collect_changes.sh")
+        self.assertFalse((notes / "previous.json").exists())
+
+    # -- the cap ------------------------------------------------------------
+    def test_up_to_twenty_lines_are_kept_whole(self):
+        for n in range(20):
+            self.commit("change %02d" % n)
+        self.run_script("collect_changes.sh")
+        self.assertEqual(len(self.changes()), 20)
+        self.assertEqual(self.changes()[-1], "change 00")
+
+    def test_past_twenty_lines_the_newest_are_kept_and_the_rest_counted(self):
+        for n in range(22):
+            self.commit("change %02d" % n)
+        self.run_script("collect_changes.sh")
+        changes = self.changes()
+        self.assertEqual(len(changes), 20)
+        self.assertEqual(changes[0], "change 21")
+        self.assertEqual(changes[18], "change 03")
+        self.assertEqual(changes[19], "…and 3 more changes.")
+
+    def test_the_cap_fits_the_manifest_so_the_count_is_never_cut_off(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("make_manifest", CI_DIR / "make_manifest.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for n in range(30):
+            self.commit("change %02d" % n)
+        self.run_script("collect_changes.sh")
+        self.assertLessEqual(len(self.changes()), module.MAX_CHANGES_PER_ENTRY)
 
 
 class PrepareHelpers(Sandbox):

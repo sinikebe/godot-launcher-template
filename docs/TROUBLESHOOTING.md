@@ -37,8 +37,9 @@ new APK/EXE that actually contains the change.
 
 Check, in order:
 
-1. `update_repo` in `launcher_config.tres` is your game's repo, `owner/name`.
-   Not the launcher template's.
+1. `update_repo` in `launcher_config.tres` is your game's repo, `owner/name`,
+   or the releases repository it publishes to with `RELEASE_REPO`. Not the
+   launcher template's.
 2. A release actually exists, and is marked **Latest** on the Releases page.
 3. The installed build is genuinely older. A build reports its versions bottom
    right; compare with the release.
@@ -90,6 +91,22 @@ published without its game data.
 If it says instead that the project "doesn't have an `export_presets.cfg` file
 at its root", the file never reached the repository. Commit it, and check that
 `.gitignore` does not exclude it.
+
+### The Release workflow fails at "Check the release repository"
+
+`RELEASE_REPO` names a separate releases repository, and something about it
+would make the publish fail at the end. The error says which:
+
+- **No `RELEASE_TOKEN` secret.** The workflow's own token can write only to the
+  repository it runs in.
+- **It cannot be read with `RELEASE_TOKEN`.** A typo in `RELEASE_REPO`, or a
+  token that was not given that repository.
+- **It is private.** Players' apps download with no token. Make it public; it
+  holds only releases.
+- **It has no commits.** GitHub cannot create a release tag in an empty
+  repository. Add a README.
+
+See [Publishing from a private repository](UPDATES.md#publishing-from-a-private-repository).
 
 ### The Release workflow fails on the Android export
 
@@ -159,7 +176,10 @@ and *new upstream, not present here* (the template added or split a workflow
 and you do not have it at all).
 
 **Fix:** copy them across by hand, then put back any edit of your own, such as
-a branch you added to `release.yml`.
+a branch you added to `release.yml`. The runner each job uses and the repository
+releases go to are repository variables, not edits, so they never count as
+drift; see [Running the workflows on your own
+machine](UPDATES.md#running-the-workflows-on-your-own-machine).
 
 ```bash
 rm -rf /tmp/lt && git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
