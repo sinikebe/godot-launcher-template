@@ -278,7 +278,10 @@ that in two places only:
   the launcher's -- and handle Back by connecting the launcher's
   `back_requested` signal. It is emitted only for a Back that none of the
   launcher's dialogs took, so the Back that closes one never reaches your code
-  as well. Nothing then quits on Back unless your code does.
+  as well. Nothing then quits on Back unless your code does. Set it once, as
+  above, rather than switching it as your panels open and close: for the frame
+  in which Back closes one of its dialogs, the launcher turns the quit off and
+  then on again, which undoes a switch your code makes in that same frame.
 - **In your game**, Back does nothing until you handle it, so one stray tap no
   longer ends a run. The launcher turns the quit off as it leaves the scene
   tree. To pause, open a menu or return to the launcher, handle the
@@ -291,7 +294,9 @@ that in two places only:
   ```
 
   To have Back quit from your game again, set
-  `get_tree().quit_on_go_back = true` there. A game that keeps the launcher in
+  `get_tree().quit_on_go_back = true` from your scene's `_ready()`. The
+  launcher turns the quit off after your scene is created, so setting it any
+  earlier, such as in `_init()`, is undone. A game that keeps the launcher in
   the tree, hidden, while it runs is still on the launcher's screen as far as
   Back goes.
 
