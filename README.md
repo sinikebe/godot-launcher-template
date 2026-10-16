@@ -157,6 +157,11 @@ scene out of `res://`. The last line turns on the texture format Android
 needs; without it, the release's Android export fails. Set the main scene to
 `res://addons/launcher/launcher.tscn`.
 
+The launcher is laid out for the template's `[display]` settings: a 1280×720
+viewport, `window/stretch/mode="canvas_items"` and
+`window/stretch/aspect="expand"`. Your game keeps its own, orientation
+included; see [Screen orientation](#screen-orientation).
+
 Last, give it your game's identity. `ci/new_game.sh` does this only for a
 repository made from the template, and it does nothing here, so edit the
 copies by hand before your first release:
@@ -194,8 +199,13 @@ before other people install it.
 
 ## Making it yours
 
-Everything below is a field on your `LauncherConfig`, apart from one optional
-script for running code of your own. **Nothing in `addons/launcher/` should
+Most of what follows is a field on your `LauncherConfig`. The rest is code of
+your own, in your game's scenes or in one optional script that runs on the
+launcher's screen; your translation catalogs in `res://locale/`; two
+`project.godot` settings; and the version stamp, which the launcher fills in
+itself. The two settings, whether Back quits from the launcher's screen and
+screen orientation, change only with a new app build, though code of yours can
+override either while the app runs. **Nothing in `addons/launcher/` should
 ever need editing** — that directory is replaced wholesale on every sync, so
 local edits there are silently reverted.
 
@@ -306,6 +316,33 @@ that in two places only:
 This is code, so a content update can change it. The project setting is not:
 a content update cannot change it, and it only ever decides the launcher's
 screen.
+
+### Screen orientation
+
+The template's `project.godot` sets `window/handheld/orientation=4`. That is
+**Sensor Landscape**, not Sensor: full screen on a phone, the app turns between
+the two landscape directions and never into portrait. Android's manifest gets
+`userLandscape`. Full sensor, landscape or portrait, is `6` (`fullUser` in the
+manifest).
+
+Landscape is what the launcher is laid out for. With the template's
+`[display]` settings it lays out on a 1280×720 base, scaled evenly until it
+fills the screen one way, with any extra length the other way added to the
+layout. With `6`, it still fits a portrait screen, but the 1280-wide base has
+to fit the narrow side, so everything is drawn at about half the size it has
+in landscape on the same phone.
+
+Like Back, the setting is read once, at startup, so a content update cannot
+change it. Code can change the orientation itself:
+`DisplayServer.screen_set_orientation()`, called from your game's scenes or
+from `_launcher_opening()`, changes it while the app runs, and that code ships
+in a content pack like any other script. The change lasts until code changes
+it again or the app restarts, so a game that turns to portrait for its own
+scenes brings players back to a portrait launcher unless `_launcher_opening()`
+turns it back with
+`DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)`.
+Desktop builds have no orientation and log a warning for the call; guard it
+with `DisplayServer.has_feature(DisplayServer.FEATURE_ORIENTATION)`.
 
 ### Version stamp
 

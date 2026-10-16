@@ -1,6 +1,7 @@
 ; Demo project for developing the launcher standalone.
-; A game using this template keeps its own project.godot; the parts that matter
-; are the [autoload] block and the launcher/config_path setting.
+; A game made from the template keeps and edits this file. One that added the
+; launcher to an existing project merges in what the README's "Add it to an
+; existing game" lists. The launcher is laid out for the [display] block below.
 
 config_version=5
 
@@ -24,6 +25,8 @@ window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+; 4 is Sensor Landscape: turns between the landscape directions, never
+; portrait. 6 is full sensor. See "Screen orientation" in the README.
 window/handheld/orientation=4
 
 [launcher]
