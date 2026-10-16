@@ -98,11 +98,13 @@ var _hooks: Object = null
 
 func _ready() -> void:
 	_config = BuildInfo.config
-	# Back is handled in _notification() here, and by the game once it is
-	# running, so Godot must not quit on it by itself. Switched off at runtime,
-	# not in project.godot: a content pack cannot change a project setting, and
-	# the sync never touches a game's. Before the hook, so a game can turn it on.
-	get_tree().quit_on_go_back = false
+	# On this screen Back quits as the game's project settings say, whatever the
+	# scene before left it at. The launcher only closes its own dialogs on Back
+	# and turns the quit off when it leaves for the game; see _notification().
+	# Before the hook, so a game that handles Back here itself -- a panel of its
+	# own, a scene around the launcher -- can turn it off and is not quit from
+	# under.
+	get_tree().quit_on_go_back = bool(ProjectSettings.get_setting("application/config/quit_on_go_back", true))
 	# First, so whatever the game sets up -- its catalogs, a language the player
 	# chose -- is already in force when the screen below is built.
 	_run_opening_hook()
@@ -169,7 +171,16 @@ func _ready() -> void:
 ## translating -- and nothing else would ever refill them.
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		_on_back()
+		# Before _ready() there is no dialog to close, and _overlay is not set yet.
+		if _screen_built and _overlay.visible:
+			_hide_overlay()
+			_hold_quit_for_this_back()
+		return
+	if what == NOTIFICATION_EXIT_TREE:
+		# Leaving for the game, whose run must not end on one stray Back. Switched
+		# off at runtime, not in project.godot: a content pack cannot change a
+		# project setting. The game turns it back on in its own scene if it wants.
+		get_tree().quit_on_go_back = false
 		return
 	if what == NOTIFICATION_PREDELETE:
 		# A hooks script that extends Object is neither reference-counted nor in
@@ -666,14 +677,15 @@ func _fit_overlay() -> void:
 	_overlay_scroll.update_minimum_size()
 
 
-## Back on Android, on the launcher's own screen: closes the open dialog, and
-## otherwise quits, which is what Back did before _ready() turned Godot's own
-## quit off. Inside the game the launcher is gone, and Back is the game's.
-func _on_back() -> void:
-	if _overlay.visible:
-		_hide_overlay()
-	else:
-		get_tree().quit()
+## Keeps the Back that just closed a dialog from quitting as well. Godot asks
+## quit_on_go_back in root's go_back_requested, emitted straight after this
+## notification, so the game's setting is put back only after that, deferred.
+func _hold_quit_for_this_back() -> void:
+	var tree := get_tree()
+	if not tree.quit_on_go_back:
+		return
+	tree.quit_on_go_back = false
+	tree.set_deferred("quit_on_go_back", true)
 
 
 func _hide_overlay() -> void:

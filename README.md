@@ -266,14 +266,20 @@ each time the launcher opens.
 
 ### Back on Android
 
-By default, Godot quits the app whenever Back is pressed. The launcher turns
-that off each time it opens:
+By default, Godot quits the app whenever Back is pressed. The launcher changes
+that in two places only:
 
-- **On the launcher's screen**, Back closes an open dialog, and otherwise
-  quits.
+- **On the launcher's screen**, Back closes an open launcher dialog, and
+  otherwise quits, as `application/config/quit_on_go_back` in your
+  `project.godot` says (on unless you turned it off). If your
+  `_launcher_opening()` adds a panel of its own, or your main scene is a scene
+  of yours around the launcher, set `get_tree().quit_on_go_back = false` from
+  there and handle Back yourself, as below. Nothing then quits on Back unless
+  your code does.
 - **In your game**, Back does nothing until you handle it, so one stray tap no
-  longer ends a run. To pause, open a menu or return to the launcher, handle
-  the notification in your scene:
+  longer ends a run. The launcher turns the quit off as it leaves the scene
+  tree. To pause, open a menu or return to the launcher, handle the
+  notification in your scene:
 
   ```gdscript
   func _notification(what: int) -> void:
@@ -282,11 +288,13 @@ that off each time it opens:
   ```
 
   To have Back quit from your game again, set
-  `get_tree().quit_on_go_back = true` there.
+  `get_tree().quit_on_go_back = true` there. A game that keeps the launcher in
+  the tree, hidden, while it runs is still on the launcher's screen as far as
+  Back goes.
 
-This is code, so a content update can change it. Setting
-`application/config/quit_on_go_back` in `project.godot` is not enough: a
-content update cannot change it, and the launcher overrides it anyway.
+This is code, so a content update can change it. The project setting is not:
+a content update cannot change it, and it only ever decides the launcher's
+screen.
 
 ### Version stamp
 
