@@ -166,7 +166,9 @@ Two possibilities:
 Expected. A pull request opened with the built-in `GITHUB_TOKEN` cannot trigger
 other workflows — GitHub blocks that to prevent loops. The sync job imports and
 boots your project itself before opening the PR, which covers the realistic
-breakage. Use a personal access token instead if you want your full CI on it.
+breakage. To run your full CI on it as well, close the pull request and reopen
+it. A personal access token also works, but only by editing `sync-launcher.yml`,
+which the sync then reports as changed upstream on every run.
 
 ### The sync says my workflows have drifted
 
@@ -206,8 +208,8 @@ rather than patching locally.
 Include the bottom-right stamp from your launcher in any report:
 
 ```
-v0.2.0 · bin 2 · content 13 · 6721df5d
-launcher 2.1.0 · b0f419d7
+v0.2.0  ·  bin 2  ·  content 13  ·  6721df5d
+launcher 2.7.1  ·  b0f419d7
 ```
 
 It says which game build and which launcher revision you are on, which is

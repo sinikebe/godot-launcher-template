@@ -18,8 +18,10 @@ Everything follows from splitting "what changed" into two questions.
 - changing project settings (a pack cannot re-apply `project.godot`)
 
 **Leave it alone** for everything else — scenes, scripts, shaders, art, audio,
-balance. Those ship as a content pack, which is a few tens of kilobytes instead
-of a ~57 MB APK, and applies with a restart instead of a reinstall.
+balance. Those ship as a content pack: your game's resources without the engine,
+so far smaller than the APK (the demo's is about 80 KB, against about 50 MB), and
+it applies with a restart instead of a reinstall. A pack carries all of your
+resources each time, not only what changed, so it grows with your art and audio.
 
 `content_version` is the commit count on `main` (`git rev-list --count HEAD`).
 It is monotonic, moves on every merge, and needs no bookkeeping.
@@ -104,7 +106,7 @@ gets a fresh answer.
   "artifacts": {
     "binary":  { "android": { "file": "…", "url": "…", "size": 0, "sha256": "…" },
                  "windows": { … } },
-    "content": { "android": { … }, "windows": { … } }
+    "content": { "android": { … }, "windows": { … }, "linux": { … }, "macos": { … } }
   },
   "changelog": [
     { "content_version": 12, "binary_version": 1, "version_name": "0.1.0",
@@ -251,9 +253,17 @@ manifest, and the update check settles on `UNAVAILABLE` with
 `No content pack published for <key>.`
 
 A Web export needs no pack, since it updates by being re-served — but the launcher
-does not know that, and will show that message from the first release onward. Turn
-the bar off in a web build's config (`show_update_bar = false`,
-`check_on_launch = false`) until the launcher learns to skip the check there.
+does not know that, and will show that message from the first release onward.
+There is one config for every platform, so turn `show_update_bar` and
+`check_on_launch` off for a web build from `_launcher_opening()`, which runs
+before the launcher reads them, until the launcher learns to skip the check
+there:
+
+```gdscript
+if OS.has_feature("web"):
+    BuildInfo.config.check_on_launch = false
+    BuildInfo.config.show_update_bar = false
+```
 
 ### What a binary update cannot do off Android and Windows
 
@@ -336,7 +346,7 @@ sharing builds, not after.
 
 ### How the secret is kept out of reach
 
-- The workflow only runs on `push` to `main` and manual dispatch. Pull requests
+- The workflow only runs on `push` to `main` or `dev` and manual dispatch. Pull requests
   go through `ci.yml`, which has no secrets and publishes nothing — so a fork PR
   can never reach the key. It does rehearse the end of the release: `ci/release_dry_run.sh`
   runs the assemble and manifest steps of `release.yml` itself, checks the manifest against the

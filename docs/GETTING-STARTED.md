@@ -31,7 +31,8 @@ cd your-game
 
 ## 2. Name your game
 
-One command sets up everything:
+One command sets the name, the package id and the repository the app checks
+for updates:
 
 ```bash
 bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
@@ -44,6 +45,12 @@ bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
   can update the other. Use your own name or domain; never leave the example.
 
 > **You should see** a short list of changed files ending in `template/ removed`.
+
+It does not touch the rest of the demo. In `launcher_config.tres`, set
+`play_scene` to your first scene, change `tagline` (it still says *template
+demo*), and clear `extra_buttons` unless you will wire up its Settings button.
+Replace `icon.svg` too: it is your app's icon, and changing it later needs a new
+app build.
 
 Commit it:
 
@@ -99,7 +106,8 @@ updates**.
 > your commit message, then a download and a **Restart** prompt. After the
 > restart, your change is there — no reinstall.
 
-That was a *content* update: a few tens of kilobytes. Read
+That was a *content* update: far smaller than the app, since it carries no
+engine. Read
 [UPDATES.md](UPDATES.md#the-two-version-numbers) for when you need to bump
 `binary_version` instead and ship a whole new APK.
 
