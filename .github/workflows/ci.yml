@@ -5,6 +5,15 @@ name: CI
 #
 # This workflow never touches a secret and never publishes anything, which is
 # what makes it safe to run on pull requests from forks.
+#
+# On a private repository, the CI_RUNNER repository variable picks the runner
+# label it runs on, with no edit to this file; unset, and on any public
+# repository, it is ubuntu-latest. A pull request from a fork, or the launcher
+# sync's own pull request, also gets ubuntu-latest. That keeps an unmodified
+# workflow off your runner, but it is not a security boundary: a pull request
+# runs the workflow file from the pull request, so it can name your runner's
+# label itself. Never register a self-hosted runner on a public repository. See
+# docs/UPDATES.md, "Running the workflows on your own machine".
 
 on:
   pull_request:
@@ -20,11 +29,15 @@ concurrency:
 env:
   GODOT_VERSION: "4.7"
   GODOT_RELEASE: stable
+  # Where release.yml publishes, so the notes and the rehearsal below describe the
+  # release as it would really go out.
+  RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
 jobs:
   build:
     name: Export check
-    runs-on: ubuntu-latest
+    # `a && b || c`: an unset CI_RUNNER is empty, which is false, and falls through.
+    runs-on: ${{ github.event.repository.private && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'launcher-sync')) && vars.CI_RUNNER || 'ubuntu-latest' }}
 
     steps:
       - name: Check out
@@ -60,7 +73,9 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        # Pinned to a commit: a third-party action runs as this job, before the steps
+        # that hold the signing key and, in release.yml, RELEASE_TOKEN.
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: "platform-tools build-tools;34.0.0"
 
@@ -107,19 +122,31 @@ jobs:
       - name: Check for script and scene errors
         # Loads every autoload and the main scene, then quits. Any parse error,
         # bad preload or broken scene reference fails the job here.
-        run: ~/godot/godot --headless --path . --quit-after 120
+        #
+        # With a scratch HOME and XDG dirs, so user:// starts empty as it does on a
+        # fresh GitHub machine. On a runner that keeps its home between jobs, the
+        # settings, update state or downloaded pack an earlier run left there would
+        # otherwise carry into this one.
+        run: |
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          HOME="$scratch" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" \
+            ~/godot/godot --headless --path . --quit-after 120
 
       - name: Run the launcher's GDScript tests
         # The changelog formatter and the staged-pack mount guards decide what a
         # player is shown and which content they run, and the boot check above
         # only proves they parse. These tests drive the real autoloads. A scratch
-        # HOME keeps user:// away from anything the boot check just wrote. The
+        # HOME and XDG dirs keep user:// away from anything else. The
         # script prints its own tally because a Godot exit code is not trusted to
         # mean "no script errors" (#71), so the step also fails on any SCRIPT
         # ERROR line and on a tally that is missing or not zero-failed. See
         # ci/tests/run_gd_tests.gd.
         run: |
-          out="$(HOME="$(mktemp -d)" ~/godot/godot --headless --path . --script ci/tests/run_gd_tests.gd 2>&1)" || { echo "$out"; exit 1; }
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          out="$(HOME="$scratch" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" \
+            ~/godot/godot --headless --path . --script ci/tests/run_gd_tests.gd 2>&1)" || { echo "$out"; exit 1; }
           echo "$out"
           if grep -q 'SCRIPT ERROR' <<<"$out"; then echo "::error::a SCRIPT ERROR was logged"; exit 1; fi
           grep -qE '^[0-9]+ checks, 0 failed$' <<<"$out"
@@ -169,8 +196,12 @@ jobs:
         run: bash ci/release_dry_run.sh
 
       - name: Check the shell scripts
+        # Installed only when missing: a runner of your own may have it already,
+        # and may not allow sudo.
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          if ! command -v shellcheck >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          fi
           shellcheck --severity=warning ci/*.sh
 
 

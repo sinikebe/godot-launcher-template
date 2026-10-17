@@ -29,10 +29,14 @@ env:
   GODOT_RELEASE: stable
   LAUNCHER_TEMPLATE_REPO: sinikebe/godot-launcher-template
   LAUNCHER_TEMPLATE_REF: ${{ inputs.ref || 'main' }}
+  # Where release.yml publishes, so the build stamp below checks the same thing.
+  RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
 jobs:
   sync:
     name: Sync from template
+    # Always GitHub's machine, never one of your own: this job runs the scripts
+    # it has just pulled from the template before anyone has reviewed them.
     runs-on: ubuntu-latest
     # Skip inside the template itself, which would otherwise sync from its own
     # HEAD and open a pull request against itself. Change this alongside
@@ -88,7 +92,11 @@ jobs:
           bash ci/collect_changes.sh || true
           bash ci/prepare_build.sh
           ~/godot/godot --headless --path . --import
-          ~/godot/godot --headless --path . --quit-after 120
+          # A scratch HOME, as in ci.yml's boot check, so user:// starts empty.
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          HOME="$scratch" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" \
+            ~/godot/godot --headless --path . --quit-after 120
           # prepare_build.sh stamps generated values; keep them out of the PR.
           #
           # One pathspec at a time, and only for files git actually tracks.

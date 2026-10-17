@@ -66,7 +66,7 @@ jobs:
           python3 ci/make_manifest.py \
             --changes-file build/notes/changes.json \
             --previous-manifest build/notes/previous.json \
-            --repo "${GITHUB_REPOSITORY}" \
+            --repo "${RELEASE_REPO}" \
             --version-name "${{ steps.version.outputs.version_name }}" \
             --binary-version "${{ steps.version.outputs.binary_version }}" \
             --content-version "${{ steps.version.outputs.content_version }}" \
@@ -82,7 +82,9 @@ jobs:
 
       - name: Publish release
         env:
-          GH_TOKEN: ${{ github.token }}
+          # github.token can write only to this repository; RELEASE_TOKEN is the
+          # one that reaches a separate RELEASE_REPO.
+          GH_TOKEN: ${{ vars.RELEASE_REPO && vars.RELEASE_REPO != github.repository && secrets.RELEASE_TOKEN || github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
           GAME_NAME: ${{ steps.version.outputs.game_name }}
@@ -484,6 +486,27 @@ class Rehearsal(Sandbox):
         result = self.rehearse()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    # -- a separate releases repository (RELEASE_REPO) ---------------------
+    def test_a_separate_release_repo_is_rehearsed_against_that_repo(self):
+        result = self.rehearse(RELEASE_REPO="me/game-releases")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = json.loads((self.out / "manifest.json").read_text(encoding="utf-8"))
+        url = manifest["artifacts"]["binary"]["android"]["url"]
+        self.assertTrue(url.startswith("https://github.com/me/game-releases/releases/download/"), url)
+
+    def test_a_manifest_pointing_at_the_wrong_repo_fails_the_check(self):
+        self.break_workflow('--repo "${RELEASE_REPO}"', '--repo "${GITHUB_REPOSITORY}"')
+        result = self.rehearse(RELEASE_REPO="me/game-releases")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("url is 'https://github.com/me/game/", result.stderr)
+
+    def test_a_release_yml_from_before_release_repo_still_rehearses(self):
+        # ci/ is synced into games, their workflows are not: a game's release.yml may
+        # still pass GITHUB_REPOSITORY, and must keep passing with RELEASE_REPO unset.
+        self.break_workflow('--repo "${RELEASE_REPO}"', '--repo "${GITHUB_REPOSITORY}"')
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     # -- the workflow cannot be read: say so, loudly ----------------------
     def test_a_missing_step_is_named(self):
         self.break_workflow("- name: Build update manifest", "- name: Something else")
@@ -583,6 +606,39 @@ class KeepInStep(unittest.TestCase):
         self.assertIn("run: bash ci/release_dry_run.sh", step)
         self.assertLess(self.ci.index("- name: Export content packs"),
                         self.ci.index("- name: Rehearse the release assembly"))
+
+    def test_both_workflows_publish_to_the_same_release_repo(self):
+        # The rehearsal in ci.yml checks URLs against RELEASE_REPO; release.yml publishes
+        # there. Defined differently, a PR would be checked against the wrong repository.
+        line = re.compile(r"^  RELEASE_REPO: (.+)$", re.M)
+        release, ci = line.findall(self.release), line.findall(self.ci)
+        self.assertEqual(len(release), 1)
+        self.assertEqual(release, ci)
+
+    def runs_on(self, name):
+        text = (REPO / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        found = re.findall(r"^    runs-on: (.+)$", text, re.M)
+        self.assertEqual(len(found), 1, name)
+        return found[0]
+
+    def test_your_own_runner_is_used_only_on_a_private_repository(self):
+        for name, var in (("ci.yml", "CI_RUNNER"), ("launcher-version.yml", "CI_RUNNER"),
+                          ("release.yml", "RELEASE_RUNNER")):
+            with self.subTest(workflow=name):
+                runs_on = self.runs_on(name)
+                self.assertTrue(runs_on.startswith("${{ github.event.repository.private && "), runs_on)
+                self.assertTrue(runs_on.endswith("&& vars.%s || 'ubuntu-latest' }}" % var), runs_on)
+
+    def test_a_fork_or_the_sync_pull_request_never_runs_on_a_runner_of_your_own(self):
+        for name in ("ci.yml", "launcher-version.yml"):
+            with self.subTest(workflow=name):
+                runs_on = self.runs_on(name)
+                self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", runs_on)
+                self.assertIn("github.event.pull_request.head.ref != 'launcher-sync'", runs_on)
+
+    def test_the_sync_always_runs_on_githubs_machine(self):
+        # It runs scripts just pulled from the template, before anyone reviews them.
+        self.assertEqual(self.runs_on("sync-launcher.yml"), "ubuntu-latest")
 
     def test_the_publish_step_of_the_real_workflow_passes_what_publish_release_reads(self):
         real = self.step(self.release, "Publish release")

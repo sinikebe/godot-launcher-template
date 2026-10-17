@@ -37,8 +37,8 @@
 #
 # Reads the values the workflow's steps read: TAG, VERSION_NAME, GAME_NAME,
 # APK_NAME, EXE_NAME, BINARY_VERSION, CONTENT_VERSION, COMMIT, GITHUB_REPOSITORY,
-# and optionally RELEASE_BRANCH and SIGNING_KIND, all in the environment: the extracted
-# steps run in a child shell.
+# and optionally RELEASE_BRANCH, RELEASE_REPO and SIGNING_KIND, all in the environment:
+# the extracted steps run in a child shell.
 set -euo pipefail
 
 : "${TAG:?TAG must be set}"
@@ -50,6 +50,10 @@ set -euo pipefail
 : "${CONTENT_VERSION:?CONTENT_VERSION must be set}"
 : "${COMMIT:?COMMIT must be set}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
+# Where release.yml publishes. Defaulted and exported here, as the workflow does, so
+# an extracted step that reads it runs under -u, and a release.yml from before it
+# existed, which still passes GITHUB_REPOSITORY, is rehearsed against the same value.
+export RELEASE_REPO="${RELEASE_REPO:-$GITHUB_REPOSITORY}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -143,7 +147,7 @@ import urllib.parse
 
 release = pathlib.Path(os.environ["RELEASE_DIR"])
 tag = os.environ["TAG"]
-repo = os.environ["GITHUB_REPOSITORY"]
+repo = os.environ["RELEASE_REPO"]
 manifest = json.loads((release / "manifest.json").read_text(encoding="utf-8"))
 problems = []
 
@@ -265,8 +269,8 @@ else:
     elif "--latest" not in call or "--prerelease" in call:
         problems.append("a release must be created as latest: %s" % call)
 
-base = ("https://github.com/%s/releases/download/%s" % (os.environ["GITHUB_REPOSITORY"], tag)
-        if branch else "https://github.com/%s/releases/latest/download" % os.environ["GITHUB_REPOSITORY"])
+base = ("https://github.com/%s/releases/download/%s" % (os.environ["RELEASE_REPO"], tag)
+        if branch else "https://github.com/%s/releases/latest/download" % os.environ["RELEASE_REPO"])
 for name in (os.environ["APK_NAME"], os.environ["EXE_NAME"]):
     if "(%s/%s)" % (base, name) not in notes:
         problems.append("the release notes do not link %s through %s" % (name, base))

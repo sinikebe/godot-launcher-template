@@ -29,7 +29,7 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 
-#: addons/launcher/update_service.gd:768
+#: addons/launcher/update_service.gd:780
 msgid "     <- installed"
 msgstr ""
 
@@ -53,7 +53,7 @@ msgstr ""
 msgid "Check for updates"
 msgstr ""
 
-#: addons/launcher/update_service.gd:832
+#: addons/launcher/update_service.gd:845
 msgid "Checking for updates…"
 msgstr ""
 
@@ -74,7 +74,7 @@ msgstr ""
 msgid "Confirm the update in the system installer. The game will reopen on the new version once the install finishes."
 msgstr ""
 
-#: addons/launcher/update_service.gd:840
+#: addons/launcher/update_service.gd:853
 msgid "Content update available (v%s)."
 msgstr ""
 
@@ -118,7 +118,7 @@ msgstr ""
 msgid "Download update"
 msgstr ""
 
-#: addons/launcher/update_service.gd:836
+#: addons/launcher/update_service.gd:849
 msgid "Downloading…"
 msgstr ""
 
@@ -133,7 +133,7 @@ msgstr ""
 msgid "Downloading… %s of %s"
 msgstr ""
 
-#: addons/launcher/update_service.gd:846
+#: addons/launcher/update_service.gd:859
 msgid "Handed over to the installer."
 msgstr ""
 
@@ -154,7 +154,7 @@ msgstr ""
 msgid "New app build · %s"
 msgstr ""
 
-#: addons/launcher/update_service.gd:842
+#: addons/launcher/update_service.gd:855
 msgid "New app version available (v%s)."
 msgstr ""
 
@@ -171,7 +171,7 @@ msgstr ""
 msgid "No update repository configured (set update_repo in the launcher config)."
 msgstr ""
 
-#: addons/launcher/update_service.gd:830
+#: addons/launcher/update_service.gd:843
 msgid "Not checked yet."
 msgstr ""
 
@@ -274,7 +274,7 @@ msgstr ""
 msgid "This is where the game starts. Set play_scene in the launcher config, or connect the launcher's play_requested signal to take over."
 msgstr ""
 
-#: addons/launcher/update_service.gd:834
+#: addons/launcher/update_service.gd:847
 msgid "Up to date."
 msgstr ""
 
@@ -290,11 +290,11 @@ msgstr ""
 msgid "Update ready"
 msgstr ""
 
-#: addons/launcher/update_service.gd:844
+#: addons/launcher/update_service.gd:857
 msgid "Update ready — restart to finish."
 msgstr ""
 
-#: addons/launcher/update_service.gd:838
+#: addons/launcher/update_service.gd:851
 msgid "Verifying download…"
 msgstr ""
 
@@ -328,14 +328,14 @@ msgstr ""
 msgid "update_repo still points at the launcher template. Set it to this game's own repository."
 msgstr ""
 
-#: addons/launcher/update_service.gd:764
+#: addons/launcher/update_service.gd:776
 #. NOTE: more than one placeholder. To reorder them, use
 #. indexed forms (%1$s, %2$d, …). Swapping a bare %s and %d
 #. is a runtime error, not a typo.
 msgid "v%s  ·  build %d"
 msgstr ""
 
-#: addons/launcher/update_service.gd:791
+#: addons/launcher/update_service.gd:804
 msgid "…and %d more change."
 msgid_plural "…and %d more changes."
 msgstr[0] ""

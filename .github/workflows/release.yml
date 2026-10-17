@@ -15,6 +15,17 @@ name: Release
 # A build follows such a branch because it was exported for it -- the stamp that
 # gives it its own package id and user:// is the same one that decides what it
 # polls -- so nothing built for main can reach it.
+#
+# Two repository variables (Settings -> Secrets and variables -> Actions ->
+# Variables) change where it runs and publishes, with no edit to this file -- an
+# edit would show up as drift on every launcher sync:
+#   RELEASE_REPO    owner/name of a separate public repository that holds only
+#                   releases, for a game whose code is private. Needs the
+#                   RELEASE_TOKEN secret. Unset publishes here.
+#   RELEASE_RUNNER  the runner label this job runs on, on a private repository
+#                   only. Unset is ubuntu-latest.
+# See docs/UPDATES.md, "Publishing from a private repository" and "Running the
+# workflows on your own machine".
 
 on:
   push:
@@ -55,11 +66,17 @@ env:
   # into the script before bash parses it. prepare_build.sh validates the value
   # and refuses anything outside [A-Za-z0-9._-].
   RELEASE_BRANCH: ${{ github.ref_name != github.event.repository.default_branch && github.ref_name || '' }}
+  # Where the release is published. Every script reads it from here, and each one
+  # treats unset as this repository, so a script synced into a game whose workflow
+  # predates it publishes exactly as before.
+  RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
 jobs:
   release:
     name: Build and publish
-    runs-on: ubuntu-latest
+    # Private repositories only: a self-hosted runner registered on a public one
+    # can be named by any pull request's own copy of a workflow.
+    runs-on: ${{ github.event.repository.private && vars.RELEASE_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: write # create the release and upload its assets
 
@@ -69,6 +86,18 @@ jobs:
         with:
           # content_version is the commit count, so the full history is required.
           fetch-depth: 0
+          # Nothing here authenticates with git: publishing goes through gh. Left
+          # in .git/config, the write token would be readable by every later step.
+          persist-credentials: false
+
+      - name: Check the release repository
+        # First, so a missing token or an unusable releases repository fails in
+        # seconds rather than after every export. Nothing to check, and nothing
+        # called, when releases are published here.
+        env:
+          GH_TOKEN: ${{ vars.RELEASE_REPO && vars.RELEASE_REPO != github.repository && secrets.RELEASE_TOKEN || github.token }}
+          RELEASE_TOKEN_SET: ${{ secrets.RELEASE_TOKEN != '' }}
+        run: bash ci/check_release_repo.sh
 
       - name: Set up Java
         uses: actions/setup-java@v6
@@ -77,7 +106,9 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        # Pinned to a commit: a third-party action runs as this job, before the steps
+        # that hold the signing key and, in release.yml, RELEASE_TOKEN.
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: "platform-tools build-tools;34.0.0"
 
@@ -107,7 +138,8 @@ jobs:
 
       - name: Collect patch notes
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Reads the latest release's manifest, from RELEASE_REPO.
+          GH_TOKEN: ${{ vars.RELEASE_REPO && vars.RELEASE_REPO != github.repository && secrets.RELEASE_TOKEN || github.token }}
         # Must run before the version stamp: prepare_build.sh bakes these notes
         # into the binary so the app can show its own changelog with no network.
         run: bash ci/collect_changes.sh
@@ -197,7 +229,7 @@ jobs:
           python3 ci/make_manifest.py \
             --changes-file build/notes/changes.json \
             --previous-manifest build/notes/previous.json \
-            --repo "${GITHUB_REPOSITORY}" \
+            --repo "${RELEASE_REPO}" \
             --version-name "${{ steps.version.outputs.version_name }}" \
             --binary-version "${{ steps.version.outputs.binary_version }}" \
             --content-version "${{ steps.version.outputs.content_version }}" \
@@ -213,7 +245,9 @@ jobs:
 
       - name: Publish release
         env:
-          GH_TOKEN: ${{ github.token }}
+          # github.token can write only to this repository; RELEASE_TOKEN is the
+          # one that reaches a separate RELEASE_REPO.
+          GH_TOKEN: ${{ vars.RELEASE_REPO && vars.RELEASE_REPO != github.repository && secrets.RELEASE_TOKEN || github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
           GAME_NAME: ${{ steps.version.outputs.game_name }}
@@ -225,7 +259,10 @@ jobs:
         run: bash ci/publish_release.sh
 
       - name: Shred the signing key
-        # Runners are ephemeral, but the keystore is removed explicitly so it
-        # cannot survive into any later step of this job.
+        # Removed explicitly so it cannot survive into any later step of this job.
+        # GitHub's machines are thrown away after the job; on a self-hosted runner
+        # nothing else guarantees it.
         if: always()
-        run: rm -rf "${RUNNER_TEMP}/launcher-signing"
+        run: |
+          find "${RUNNER_TEMP}/launcher-signing" -type f -exec shred -u {} + 2>/dev/null || true
+          rm -rf "${RUNNER_TEMP}/launcher-signing"

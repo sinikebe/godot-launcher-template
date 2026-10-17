@@ -751,6 +751,18 @@ func _entry_has_changes(entry: Dictionary) -> bool:
 	return changes is Array and not changes.is_empty()
 
 
+## How many changes one line of notes stands for when it is left out. A release
+## past CI's cap ends in a line counting the rest, "…and 2982 more changes."
+## (ci/collect_changes.sh), which stands for that many, not one.
+func _changes_in(change: Variant) -> int:
+	if change is String:
+		# At most nine digits, so the count cannot overflow the int it is added to.
+		var found := RegEx.create_from_string("^…and (\\d{1,9}) more changes?\\.$").search(change)
+		if found != null:
+			return maxi(int(found.get_string(1)), 1)
+	return 1
+
+
 func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> String:
 	var lines: PackedStringArray = []
 	var dropped := 0
@@ -768,7 +780,8 @@ func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> St
 			heading += tr("     <- installed")
 
 		if lines.size() >= max_lines:
-			dropped += changes.size()
+			for change: Variant in changes:
+				dropped += _changes_in(change)
 			continue
 
 		if not lines.is_empty():
@@ -777,7 +790,7 @@ func _format_entries(entries: Array, max_lines: int, mark_installed: bool) -> St
 
 		for change: Variant in changes:
 			if lines.size() >= max_lines:
-				dropped += 1
+				dropped += _changes_in(change)
 			else:
 				lines.append("  •  %s" % str(change))
 

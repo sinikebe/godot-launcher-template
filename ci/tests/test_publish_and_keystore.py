@@ -30,6 +30,7 @@ from test_release_scripts import Sandbox
 
 FAKE_GH = """#!/usr/bin/env bash
 echo "$*" >> "$FAKE_GH_LOG"
+echo "${GH_REPO:-}" >> "$FAKE_GH_LOG.repo"
 prev=""
 for arg in "$@"; do
   if [[ "$prev" == --notes-file ]]; then cp "$arg" "$FAKE_GH_NOTES"; fi
@@ -98,6 +99,10 @@ class PublishBase(Sandbox):
 
     def notes_text(self):
         return self.notes.read_text(encoding="utf-8")
+
+    def gh_repos(self):
+        path = pathlib.Path(str(self.gh_log) + ".repo")
+        return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 
 
 class PublishRelease(PublishBase):
@@ -249,6 +254,64 @@ class PublishRelease(PublishBase):
         self.publish()
         self.assertNotIn("What's new", self.notes_text())
 
+    def test_the_debug_key_warning_links_the_templates_public_docs(self):
+        # A game's own docs/ may not exist, and a private repository's is unreadable
+        # to everyone outside its team.
+        self.publish()
+        self.assertIn("(https://github.com/sinikebe/godot-launcher-template/blob/main/docs/UPDATES.md#signing)",
+                      self.notes_text())
+        self.publish(LAUNCHER_TEMPLATE_REPO="me/my-fork")
+        self.assertIn("(https://github.com/me/my-fork/blob/main/docs/UPDATES.md#signing)", self.notes_text())
+
+    # -- where it is published ----------------------------------------------
+    def test_by_default_every_call_goes_to_this_repository(self):
+        self.publish()
+        self.assertEqual(set(self.gh_repos()), {"me/game"})
+
+    def test_the_tag_is_created_at_the_commit_that_was_built(self):
+        # Without --target, GitHub tags the default branch's tip, which moves on
+        # while a release is being built.
+        self.publish()
+        head = self.git("rev-parse", "HEAD")
+        self.assertIn(" --target %s " % head, self.gh_calls()[1] + " ")
+
+    def test_a_separate_release_repo_gets_every_call_and_every_link(self):
+        result = self.publish(RELEASE_REPO="me/game-releases")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(set(self.gh_repos()), {"me/game-releases"})
+        text = self.notes_text()
+        self.assertIn("(https://github.com/me/game-releases/releases/latest/download/launcher-demo.apk)", text)
+        self.assertIn("(https://github.com/me/game-releases/releases/latest/download/LauncherDemo.exe)", text)
+        self.assertNotIn("github.com/me/game/", text)
+        self.assertIn("Published v0.1.0+3: https://github.com/me/game-releases/releases/tag/v0.1.0+3", result.stdout)
+
+    def test_this_repository_named_in_another_case_is_still_this_repository(self):
+        self.publish(RELEASE_REPO="Me/Game")
+        self.assertIn("--target", self.gh_calls()[1])
+
+    def test_a_separate_release_repo_is_not_asked_to_tag_a_commit_it_does_not_have(self):
+        self.publish(RELEASE_REPO="me/game-releases")
+        self.assertNotIn("--target", self.gh_calls()[1])
+
+    def test_a_separate_release_repo_is_named_with_the_flag_too(self):
+        # gh refuses a tag that exists in this checkout but not in the target repo,
+        # unless the repo comes from --repo; GH_REPO alone is not enough.
+        self.publish(RELEASE_REPO="me/game-releases")
+        self.assertIn(" --repo me/game-releases ", self.gh_calls()[1] + " ")
+
+    def test_a_branch_build_here_is_not_pinned_to_its_commit(self):
+        # The workflow's token may not tag a commit that changes .github/workflows/
+        # relative to the default branch, which a branch build's commit may do.
+        self.publish(TAG="branch-dev", RELEASE_BRANCH="dev")
+        self.assertNotIn("--target", self.gh_calls()[1])
+        self.assertNotIn("--repo", self.gh_calls()[1])
+
+    def test_a_branch_build_in_a_separate_release_repo_links_through_its_tag_there(self):
+        self.publish(RELEASE_REPO="me/game-releases", TAG="branch-dev", RELEASE_BRANCH="dev")
+        self.assertIn("(https://github.com/me/game-releases/releases/download/branch-dev/launcher-demo.apk)",
+                      self.notes_text())
+        self.assertIn("--prerelease", self.gh_calls()[1])
+
     def test_unreadable_notes_do_not_stop_the_release(self):
         notes = self.root / "build" / "notes"
         notes.mkdir(parents=True)
@@ -256,6 +319,107 @@ class PublishRelease(PublishBase):
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.gh_calls()[1].startswith("release create"))
+
+
+FAKE_GH_API = """#!/usr/bin/env bash
+echo "$*" >> "$FAKE_GH_LOG"
+case "$*" in
+  "api repos/$FAKE_REPO --jq .private") [[ "$FAKE_REPO_READABLE" == 1 ]] || exit 1; echo "$FAKE_PRIVATE" ;;
+  "api repos/$FAKE_REPO/commits?per_page=1 --silent") [[ "$FAKE_HAS_COMMITS" == 1 ]] || exit 1 ;;
+  *) exit 1 ;;
+esac
+"""
+
+
+class CheckReleaseRepo(Sandbox):
+    """ci/check_release_repo.sh, which release.yml runs before any export."""
+
+    def setUp(self):
+        super().setUp()
+        shutil_copy = self.root / "ci" / "check_release_repo.sh"
+        shutil_copy.write_bytes((PublishBase.CI_SRC / "check_release_repo.sh").read_bytes())
+        (self.bin / "gh").write_text(FAKE_GH_API, encoding="utf-8")
+
+    def check(self, **env):
+        base = {"GITHUB_REPOSITORY": "me/game", "RELEASE_REPO": "me/game-releases", "RELEASE_TOKEN_SET": "true",
+                "FAKE_REPO": "me/game-releases", "FAKE_REPO_READABLE": "1", "FAKE_PRIVATE": "false",
+                "FAKE_HAS_COMMITS": "1"}
+        base.update(env)
+        return self.run_script("check_release_repo.sh", **base)
+
+    def calls(self):
+        return self.gh_log.read_text(encoding="utf-8").splitlines() if self.gh_log.exists() else []
+
+    def test_publishing_here_needs_no_check_and_calls_nothing(self):
+        for env in ({"RELEASE_REPO": ""}, {"RELEASE_REPO": "me/game"}, {"RELEASE_REPO": "ME/Game"}):
+            with self.subTest(env=env):
+                result = self.check(RELEASE_TOKEN_SET="false", **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("published to this repository, me/game", result.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_usable_releases_repository_passes(self):
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("published to me/game-releases", result.stdout)
+
+    def test_without_a_release_token_it_says_which_secret_to_add(self):
+        for value in ("false", ""):
+            with self.subTest(value=value):
+                result = self.check(RELEASE_TOKEN_SET=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("no RELEASE_TOKEN secret", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_value_that_is_not_owner_slash_name_is_refused_before_gh(self):
+        for bad in ("game-releases", "me/game/releases", "me /game", "-me/game", "me/game releases", "https://github.com/me/x"):
+            with self.subTest(repo=bad):
+                result = self.check(RELEASE_REPO=bad)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("not an owner/name", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_repository_that_cannot_be_seen_is_reported(self):
+        result = self.check(FAKE_REPO_READABLE="0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not exist, or is not visible", result.stderr)
+
+    def test_a_classic_token_is_refused_without_being_printed(self):
+        result = self.check(GH_TOKEN="ghp_secretvalue")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("classic personal access token", result.stderr)
+        self.assertNotIn("secretvalue", result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_classic_token_from_before_2021_is_refused_too(self):
+        result = self.check(GH_TOKEN="0123456789abcdef0123456789abcdef01234567")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("classic personal access token", result.stderr)
+        self.assertNotIn("0123456789abcdef", result.stdout + result.stderr)
+
+    def test_a_fine_grained_token_is_accepted(self):
+        result = self.check(GH_TOKEN="github_pat_value")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_self_hosted_release_runner_is_warned_about(self):
+        for env, warned in (({"RUNNER_ENVIRONMENT": "self-hosted"}, True),
+                            ({"RUNNER_ENVIRONMENT": "github-hosted"}, False), ({}, False)):
+            with self.subTest(env=env):
+                result = self.check(RELEASE_REPO="", **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("::warning::This release runs on a self-hosted runner" in result.stdout, warned)
+
+    def test_a_private_releases_repository_is_refused(self):
+        # Players' apps download with no token; a private repo's releases are out of reach.
+        result = self.check(FAKE_PRIVATE="true")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is private", result.stderr)
+
+    def test_an_empty_releases_repository_is_reported_with_the_fix(self):
+        result = self.check(FAKE_HAS_COMMITS="0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("has no commits", result.stderr)
+        self.assertIn("README", result.stderr)
 
 
 class SetupKeystore(PublishBase):

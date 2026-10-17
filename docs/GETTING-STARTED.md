@@ -18,7 +18,9 @@ Open [the template](https://github.com/sinikebe/godot-launcher-template) and
 click **Use this template → Create a new repository**. Name it after your game.
 
 Make it **public** unless you have a reason not to — the updater downloads from
-your releases, and private releases need a token the app will not have.
+your releases, and private releases need a token the app will not have. A
+private game publishes to a separate public repository instead; see
+[Publishing from a private repository](UPDATES.md#publishing-from-a-private-repository).
 
 Then clone it:
 

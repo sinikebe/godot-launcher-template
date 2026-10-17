@@ -124,6 +124,23 @@ else
 	TAG="v${VERSION_NAME}+${CONTENT_VERSION}"
 fi
 
+# A build checks update_repo for its updates; the release goes to RELEASE_REPO, or
+# to this repository. When they differ, whoever installs this build never sees the
+# releases after it. Most likely a release.yml from before RELEASE_REPO existed,
+# which ignores the variable. Only a warning: moving a game that has already
+# shipped to a releases repository does this on purpose, once.
+PUBLISH_TO="${RELEASE_REPO:-${GITHUB_REPOSITORY:-}}"
+# The config the build reads: project.godot's launcher/config_path, as BuildInfo
+# reads it, or the default.
+LAUNCHER_CONFIG="$(sed -n 's|^config_path="res://\(.*\)"$|\1|p' project.godot 2>/dev/null | head -1)"
+LAUNCHER_CONFIG="${LAUNCHER_CONFIG:-launcher_config.tres}"
+if [[ -n "$PUBLISH_TO" && -f "$LAUNCHER_CONFIG" ]]; then
+	POLLS="$(sed -n 's/^update_repo = "\(.*\)"$/\1/p' "$LAUNCHER_CONFIG" | head -1)"
+	if [[ -n "$POLLS" && "${POLLS,,}" != "${PUBLISH_TO,,}" ]]; then
+		echo "::warning::This build checks ${POLLS} for updates, but is published to ${PUBLISH_TO}, so the releases after it will not reach it. See docs/UPDATES.md, \"Publishing from a private repository\"."
+	fi
+fi
+
 IS_CI_BUILD=false
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
 	IS_CI_BUILD=true

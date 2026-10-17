@@ -143,6 +143,22 @@ func _test_format_entries() -> void:
 	eq(f.call([a, b], 1, false), "v1.3  ·  build 3\n\n…and 4 more changes.",
 			"a heading alone fits max_lines=1; both entries' changes are counted as dropped")
 
+	# CI's own cap ends a long release in a line counting the rest: left out, it
+	# stands for that many changes, not one
+	var capped := _entry(3, ["c1", "…and 2982 more changes."], "1.3")
+	eq(f.call([capped], 100, false), "v1.3  ·  build 3\n  •  c1\n  •  …and 2982 more changes.",
+			"shown, CI's count line is just a line")
+	eq(f.call([capped], 2, false), "v1.3  ·  build 3\n  •  c1\n\n…and 2982 more changes.",
+			"left out mid-entry, CI's count line counts as the changes it stands for")
+	eq(f.call([a, capped], 3, false), "v1.3  ·  build 3\n  •  a1\n  •  a2\n\n…and 2983 more changes.",
+			"left out with its whole entry, it still counts as what it stands for")
+	eq(f.call([_entry(3, ["x", "…and lots more changes.", "…and 0 more changes."], "1.3")], 2, false),
+			"v1.3  ·  build 3\n  •  x\n\n…and 2 more changes.",
+			"a line that only looks like the count line counts as one change")
+	eq(f.call([_entry(3, ["x", "…and 9223372036854775807 more changes.", "y"], "1.3")], 2, false),
+			"v1.3  ·  build 3\n  •  x\n\n…and 2 more changes.",
+			"a count too long to be CI's counts as one change, and cannot overflow the total")
+
 
 # ---------------------------------------------------------------------------
 # UpdateService.full_changelog

@@ -13,6 +13,12 @@
 # reused on every push to the branch -- `gh release upload --clobber` refreshes
 # the assets in place -- which is what makes the URL the branch build polls fixed
 # while its contents roll forward.
+#
+# With RELEASE_REPO set to another repository, the release is published there
+# instead: a public repository that holds only releases, for a game whose code is
+# private. Players' apps download without a token, so the releases they read must
+# be public even when the code is not. The token in GH_TOKEN then needs write
+# access to that repository; github.token only reaches this one.
 set -euo pipefail
 
 : "${TAG:?TAG must be set}"
@@ -32,6 +38,30 @@ COMMIT_SUBJECT="$(git log -1 --pretty=%s)"
 SIGNING_KIND="${SIGNING_KIND:-unknown}"
 # Empty -- the normal case -- publishes exactly as it always did.
 RELEASE_BRANCH="${RELEASE_BRANCH:-}"
+# Unset -- the normal case -- publishes to this repository, as it always did.
+RELEASE_REPO="${RELEASE_REPO:-$GITHUB_REPOSITORY}"
+# gh reads GH_REPO, so every gh call below publishes there.
+export GH_REPO="$RELEASE_REPO"
+# Extra flags for `gh release create`, which decide where its tag goes.
+CREATE_FLAGS=()
+# Without regard to case, as GitHub compares repository names.
+if [[ "${RELEASE_REPO,,}" != "${GITHUB_REPOSITORY,,}" ]]; then
+	# A separate releases repository has none of this history, so its tag goes on
+	# that repository's own default branch. --repo as a flag, not only GH_REPO: gh
+	# otherwise refuses a tag that exists in this checkout but not over there,
+	# which is every re-run of a release first published here.
+	CREATE_FLAGS=(--repo "$RELEASE_REPO")
+elif [[ -z "$RELEASE_BRANCH" ]]; then
+	# At the commit that was built: without it GitHub tags the default branch's
+	# newest commit, which is not always the one built. Not for a branch build,
+	# whose commit may change .github/workflows/ relative to the default branch,
+	# and GitHub will not let the workflow's own token tag such a commit.
+	CREATE_FLAGS=(--target "$(git rev-parse HEAD)")
+fi
+# The signing docs live in the launcher template, which is public. A game's own
+# copy may not exist (one that added the launcher by hand has no docs/), and a
+# private code repository's would be unreadable to anyone but its team.
+DOCS_REPO="${LAUNCHER_TEMPLATE_REPO:-sinikebe/godot-launcher-template}"
 
 if [[ -n "$RELEASE_BRANCH" ]]; then
 	RELEASE_TITLE="${GAME_NAME} ${VERSION_NAME} (${RELEASE_BRANCH})"
@@ -41,11 +71,11 @@ if [[ -n "$RELEASE_BRANCH" ]]; then
 	RELEASE_FLAGS=(--prerelease)
 	# Not /releases/latest/download/: that path is exactly what this release is
 	# kept out of, so a link through it would hand out the players' build instead.
-	DOWNLOAD_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+	DOWNLOAD_BASE="https://github.com/${RELEASE_REPO}/releases/download/${TAG}"
 else
 	RELEASE_TITLE="${GAME_NAME} ${VERSION_NAME}"
 	RELEASE_FLAGS=(--latest)
-	DOWNLOAD_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+	DOWNLOAD_BASE="https://github.com/${RELEASE_REPO}/releases/latest/download"
 fi
 
 # Checksums for anyone verifying a manual download. Exclude the file itself so
@@ -108,7 +138,7 @@ with open('build/notes/changes.json', encoding='utf-8') as fh:
 	echo ""
 	if [[ "$SIGNING_KIND" != "release" ]]; then
 		echo "> ⚠️ This APK is signed with a CI debug key, not a release keystore."
-		echo "> See [docs/UPDATES.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/UPDATES.md#signing)."
+		echo "> See [Signing](https://github.com/${DOCS_REPO}/blob/main/docs/UPDATES.md#signing)."
 		echo ""
 	fi
 	echo "<sub>\`manifest.json\` is what the updater reads. \`SHA256SUMS\` covers every asset here.</sub>"
@@ -122,7 +152,8 @@ else
 	gh release create "$TAG" "$RELEASE_DIR"/* \
 		--title "$RELEASE_TITLE" \
 		--notes-file "$NOTES" \
+		${CREATE_FLAGS[@]+"${CREATE_FLAGS[@]}"} \
 		"${RELEASE_FLAGS[@]}"
 fi
 
-echo "Published ${TAG}: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+echo "Published ${TAG}: https://github.com/${RELEASE_REPO}/releases/tag/${TAG}"

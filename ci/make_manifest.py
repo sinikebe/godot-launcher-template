@@ -34,6 +34,9 @@ VALID_KINDS = ("binary", "content")
 
 # The manifest is fetched on every launch, so the changelog it carries is capped.
 MAX_CHANGELOG_ENTRIES = 20
+# A backstop only: collect_changes.sh already caps a release's notes at this many
+# lines, its last one saying how many were left out, so the in-game notes and the
+# release page agree. This drops lines silently, for a changes file made otherwise.
 MAX_CHANGES_PER_ENTRY = 20
 
 
