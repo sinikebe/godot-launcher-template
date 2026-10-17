@@ -3,9 +3,10 @@
 #
 #   bash ci/new_game.sh "My Game" com.example.mygame you/my-game
 #
-# It moves the starter files into place, deletes the demo scaffolding, and
-# writes your name, your Android package id and your repository everywhere they
-# belong. Run it once, right after creating your repository from the template.
+# It puts the starter files in place, writes your name, your Android package id
+# and your repository everywhere they belong, and then deletes the demo
+# scaffolding. Run it once, right after creating your repository from the
+# template. If it stops with an error, fix that and run the same command again.
 set -euo pipefail
 
 usage() {
@@ -110,11 +111,11 @@ fi
 
 echo "Setting up '${GAME_NAME}' (${PACKAGE_ID}) for ${REPO}…"
 
-# The workflows are already at .github/workflows/ in a repo made from the
-# template; only the export presets need putting in place, replacing the demo's.
-mv -f template/export_presets.cfg export_presets.cfg
-rm -rf template
-
+# template/ is what tells a first run from a finished one, so it stays until
+# every step below has succeeded. A run that stops partway -- no python3, a
+# file it cannot parse -- leaves it in place, and running the same command
+# again starts over from the starter files and finishes the job. Removed any
+# earlier, a re-run found nothing to do and left the example package id behind.
 python3 - "$GAME_NAME" "$PACKAGE_ID" "$REPO" <<'PY'
 import json
 import pathlib
@@ -133,8 +134,11 @@ version.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 # Android identity. A duplicate package id collides with whatever else is using
 # it, and then neither app can update the other -- so this one really matters.
+# The workflows are already at .github/workflows/ in a repo made from the
+# template; only the export presets need putting in place, replacing the demo's.
+# Read from template/ every time, so a re-run starts from the starter file.
 presets = pathlib.Path("export_presets.cfg")
-text = presets.read_text(encoding="utf-8")
+text = pathlib.Path("template/export_presets.cfg").read_text(encoding="utf-8")
 text = re.sub(r'^package/unique_name=".*"$', f'package/unique_name="{package_id}"', text, flags=re.M)
 for key in ("package/name", "application/product_name", "application/file_description"):
     text = re.sub(rf'^{re.escape(key)}=".*"$', f'{key}="{game_name}"', text, flags=re.M)
@@ -152,6 +156,8 @@ text = project.read_text(encoding="utf-8")
 text = re.sub(r'^config/name=".*"$', f'config/name="{game_name}"', text, flags=re.M)
 project.write_text(text, encoding="utf-8")
 PY
+
+rm -rf template
 
 # The root LICENSE, only if you asked for it.
 #

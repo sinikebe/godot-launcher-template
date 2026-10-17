@@ -52,7 +52,10 @@ bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
   Otherwise its first release is published to the private repository, where no
   player can read it.
 - Put `--delete-licence` before the name if you want the template's root
-  `LICENSE` deleted; it only works on this first run.
+  `LICENSE` deleted; it only works until setup has finished.
+- If it stops with an error instead, fix what the error names and run the same
+  command again. It deletes `template/` only once everything else has worked,
+  and until then a run starts over from the starter files.
 
 > **You should see** `Done. Changed:` and a short list of files ending with
 > `template/` removed (and `LICENSE` deleted, if you passed `--delete-licence`),
