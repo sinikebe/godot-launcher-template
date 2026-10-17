@@ -204,10 +204,70 @@ emit_outputs() {
 	} >> "$GITHUB_OUTPUT"
 }
 
+# Stamps the launcher's own version so the game can report, on screen, exactly
+# which revision of the launcher it is running. A .json record is not enough:
+# dotfiles are not exported into the shipped pack, and a GDScript constant is.
+#
+# Every value comes from the sync record, so stamping twice from one record
+# writes the same file: a run with nothing to sync changes nothing. Called on
+# every run, not only after a sync, because the sync that delivers a change to
+# this script runs the copy from before it. That is how a game that crossed into
+# stamping kept COMMIT "local", which reads as "the template itself", until the
+# template next moved (#22).
+stamp_from_record() {
+	[[ -f "$RECORD" && -f addons/launcher/launcher_version.gd ]] || return 0
+	python3 - "$RECORD" <<'PYEOF'
+import json, pathlib, re, sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        record = json.load(fh)
+    commit, synced_at, source = (str(record.get(key, "")) for key in ("commit", "synced_at", "source"))
+except (OSError, ValueError, AttributeError):
+    sys.exit(0)
+# Each value lands inside a GDScript string literal, so only the shapes this
+# script itself writes are accepted: nothing that could close the literal.
+# An owner may hold "_" (managed-user handles do).
+if not (re.fullmatch(r"[0-9a-f]{7,40}", commit)
+        and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z", synced_at)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9._-]+", source)):
+    print("::warning::%s does not hold a usable commit, date and source, so the launcher's version stamp was not written." % sys.argv[1])
+    sys.exit(0)
+
+path = pathlib.Path("addons/launcher/launcher_version.gd")
+before = path.read_text(encoding="utf-8")
+# Already stamped for this commit: leave it. Older copies of this script took
+# SYNCED_AT from a second clock reading, which can be a second off the record's,
+# and rewriting it would open a pull request -- and on merge, a release -- for
+# nothing.
+if re.search(r'^const COMMIT: String = "%s"$' % re.escape(commit[:8]), before, flags=re.M):
+    sys.exit(0)
+text = before
+# VERSION is the template's to declare and travels with the copied file.
+for const, value in (("COMMIT", commit[:8]), ("SYNCED_AT", synced_at), ("SOURCE", source)):
+    text, found = re.subn(rf'^const {const}: String = ".*"$',
+                          f'const {const}: String = "{value}"', text, count=1, flags=re.M)
+    if not found:
+        print("::warning::addons/launcher/launcher_version.gd has no line 'const %s: String = \"...\"', so it could not be stamped." % const)
+if text != before:
+    path.write_text(text, encoding="utf-8")
+    print("Stamped addons/launcher/launcher_version.gd with %s from the sync record." % commit[:8])
+PYEOF
+}
+
 drift_report
 
 if [[ "$PREVIOUS_SHA" == "$SHA" ]]; then
-	echo "Already on ${SHORT_SHA}; nothing to do."
+	# Nothing new, but the stamp may still be missing: see above.
+	STAMPED="$(stamp_from_record)"
+	if [[ -n "$STAMPED" ]]; then
+		printf '%s\n' "$STAMPED"
+	fi
+	if [[ "$STAMPED" == *"Stamped addons/launcher/launcher_version.gd"* ]]; then
+		echo "Already on ${SHORT_SHA}; only the launcher's version stamp was missing."
+	else
+		echo "Already on ${SHORT_SHA}; nothing to do."
+	fi
 	emit_outputs
 	exit 0
 fi
@@ -221,24 +281,6 @@ for path in "${OWNED_PATHS[@]}"; do
 	mkdir -p "$(dirname "$ROOT/$path")"
 	cp -R "$WORK/template/$path" "$ROOT/$path"
 done
-
-# Stamp the launcher's own version so the game can report, on screen, exactly
-# which revision of the launcher it is running. A .json record is not enough:
-# dotfiles are not exported into the shipped pack, and a GDScript constant is.
-python3 - "$SHORT_SHA" "$TEMPLATE_REPO" <<'PYEOF'
-import datetime, pathlib, re, sys
-
-short_sha, repo = sys.argv[1], sys.argv[2]
-path = pathlib.Path("addons/launcher/launcher_version.gd")
-text = path.read_text(encoding="utf-8")
-stamped = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-# VERSION is the template's to declare and travels with the copied file.
-for const, value in (("COMMIT", short_sha), ("SYNCED_AT", stamped), ("SOURCE", repo)):
-    text = re.sub(rf'^const {const}: String = ".*"$',
-                  f'const {const}: String = "{value}"', text, count=1, flags=re.M)
-path.write_text(text, encoding="utf-8")
-PYEOF
 
 python3 - "$RECORD" "$TEMPLATE_REPO" "$TEMPLATE_REF" "$SHA" "$SUBJECT" <<'PY'
 import datetime, json, sys
@@ -256,6 +298,8 @@ with open(record, "w", encoding="utf-8") as fh:
     }, fh, indent=2)
     fh.write("\n")
 PY
+
+stamp_from_record
 
 echo "Synced launcher to ${SHORT_SHA} — ${SUBJECT}"
 
