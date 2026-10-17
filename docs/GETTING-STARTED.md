@@ -55,9 +55,9 @@ bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
   `LICENSE` deleted; it only works on this first run.
 
 > **You should see** `Done. Changed:` and a short list of files ending with
-> `template/` removed, then a **Next:** list. Its step 0 is about the root
-> `LICENSE`, which is still the template's — see [Where things
-> live](#where-things-live).
+> `template/` removed (and `LICENSE` deleted, if you passed `--delete-licence`),
+> then a **Next:** list whose step 0 is about the root `LICENSE` — see [Where
+> things live](#where-things-live).
 
 It does not touch the rest of the demo. In `launcher_config.tres`, set
 `play_scene` to your first scene, change `tagline` (it still says *template
@@ -225,6 +225,7 @@ and merging is your call, because merging publishes a release to your players.
 To check right now: **Actions → Sync launcher → Run workflow**.
 
 The sync cannot update `.github/workflows/`. When the template changes one, the
-run summary and the pull request say which; copy them across by hand — see
+run summary says which, and so does the pull request when there is one; copy
+them across by hand — see
 [The sync says my workflows have
 drifted](TROUBLESHOOTING.md#the-sync-says-my-workflows-have-drifted).

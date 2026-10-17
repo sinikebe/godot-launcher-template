@@ -366,11 +366,10 @@ new** shows the notes of the last 20 releases, offline too. Errors show in the
 bar, and the button checks again.
 
 A web or iOS build has nothing to fetch, and says `No content pack published
-for <platform>` whenever a newer release exists (after a `binary_version` bump,
-that no app build is published for it). There is one config for every platform,
-so turn both fields
-off for it from `_launcher_opening()`, which runs before the launcher reads
-them:
+for <platform>.` whenever a newer release exists, or, after a `binary_version`
+bump, that no app build is published for it. There is one config for every
+platform, so turn both fields off for it from `_launcher_opening()`, which runs
+before the launcher reads them:
 
 ```gdscript
 if OS.has_feature("web"):

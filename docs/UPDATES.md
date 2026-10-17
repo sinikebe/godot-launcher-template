@@ -144,7 +144,7 @@ Running the release again on the commit the latest release was built from — a
 re-run — repeats that release's notes rather than finding nothing. If the
 recorded commit is no longer in the history, after a force-push, the notes fall
 back to the tags. With `RELEASE_REPO` the tags are created in the releases
-repository, so there are none here to fall back on.
+repository, so the only tags here are from before a move to it, if any.
 
 A release's notes are at most 20 lines. Past that, the 19 newest are kept and the
 last line says how many were left out, as in `…and 6 more changes.` That one list
@@ -157,7 +157,7 @@ right.
 
 The manifest carries a rolling `changelog` of the last 20 releases rather than
 just the newest entry, and the update prompt lists every entry above the running
-build's `content_version`, newest first, up to twelve lines of release headings,
+build's `content_version`, newest first, about twelve lines of release headings,
 changes and the blank lines between releases. Past that it ends "…and N more
 changes.", and **What's new** has the rest. Someone who has not launched the
 game in six releases sees what they missed in one prompt, not one line about the
@@ -187,7 +187,7 @@ the old launcher too.
 Until your players are on 2.4.1, keep each release's notes short. Nine commit
 subjects of 60-odd characters are the most the old prompt holds whole: each
 wraps to two lines, and a tenth starts to clip its buttons. A player several
-releases behind sees every release they missed in one prompt: up to twelve
+releases behind sees every release they missed in one prompt: about twelve
 lines of release headings, changes and the blank lines between releases, then
 "…and N more changes.", and any of those lines can wrap. Releasing often and
 squash-merging both help.
@@ -544,7 +544,8 @@ took 22 minutes to upload, against 8 seconds from GitHub's machines.
 Merging to `main` publishes to everyone, and a pull request's CI artifact is no
 substitute: it is signed with a key made fresh for each run and carries the real
 app's package id, so Android will neither install it over the real app nor
-beside it, and installed in its place it could never take an update.
+beside it, and installed in its place it could never take an app update
+(content packs would still apply).
 
 A **branch build** fixes that. It follows one branch's rolling prerelease instead
 of `/releases/latest/`, so a change reaches a real device — over the real update
@@ -587,7 +588,8 @@ path, binary updates included — before any player sees it.
    It rewrites `build_version.gd`, `export_presets.cfg` and `project.godot` in
    your checkout. Export, then put them back with `git checkout --
    build_version.gd export_presets.cfg project.godot` before you commit
-   anything; committed, they would make every release the branch build.
+   anything; committed, `export_presets.cfg` and `project.godot` would give
+   every release the branch build's package id, name and `user://` directory.
 
    Deliberately *not* a field on `LauncherConfig`. A setting there would travel
    with the merge that ships the change — the last step below — and point every
@@ -643,8 +645,8 @@ The fastest loop, without touching a phone:
    compared first. On Windows the menu offers **Update app**, downloads and
    verifies the `.exe`, and stops at "Running from the editor — the new build
    was saved to …". On Linux and macOS it reads "Version X needs a new build for
-   linux. Open the releases page to download it." That exercises the check, the
-   prompt and the download, never a content update.
+   linux. Open the releases page to download it." (`macos` on a Mac), which
+   exercises only the check. Neither exercises a content update.
 2. To test content updates, run a build whose `binary_version` matches the
    published release's and whose `content_version` is lower: install the
    release before the latest, or export one after `bash ci/prepare_build.sh` on

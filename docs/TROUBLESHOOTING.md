@@ -68,8 +68,8 @@ You are running from the Godot editor, or a locally exported build. Those report
 version `0`, so every release looks newer. That is deliberate — it makes the
 update path easy to exercise. Installed CI builds behave correctly. On Linux or
 macOS the bar says instead `Version <x> needs a new build for linux. Open the
-releases page to download it.`, for the same reason: the editor's
-`binary_version` is 0.
+releases page to download it.` (`macos` on a Mac), for the same reason: the
+editor's `binary_version` is 0.
 
 ### A player cannot reach "Update now" or "Download"
 
@@ -173,19 +173,23 @@ gets it from the README's existing-game steps.
 If it fails while signing (the log mentions `apksigner`), the keystore did not
 open with your secrets: `ANDROID_KEYSTORE_PASSWORD` is not its password, or
 `ANDROID_KEY_ALIAS` is not its alias, or is unset, in which case CI asks for
-`androiddebugkey`. `keytool -list -keystore release.keystore` shows the alias.
+`androiddebugkey`. Or `ANDROID_KEYSTORE_BASE64` is not set while those two are,
+so CI opened its own debug keystore with your password and alias.
+`keytool -list -keystore release.keystore` shows the alias.
 
 ### The Release workflow fails at "Resolve signing key"
 
 The log says `ANDROID_KEYSTORE_BASE64 did not decode to a usable keystore.` The
-secret is not the base64 of your keystore: it is empty, cut short, or encoded
-twice. Set it again from the file:
+secret is not valid base64: it was cut short, or holds something else, such as
+the file's path or a stray character. (An empty secret does not fail here; CI
+signs with its debug key. One encoded twice decodes here and fails later, at the
+Android export.) Set it again from the file:
 
 ```bash
 base64 < release.keystore | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64
 ```
 
-### A workflow fails at "Install Godot" with "The cached … does not …"
+### A workflow fails at "Install Godot" with "The cached …"
 
 The cached editor or export templates no longer match what was installed. The
 check stops on purpose, and since a cache is never saved over a key it matched,
@@ -194,7 +198,7 @@ it fails the same way on every run until the cache is cleared.
 **Fix:** delete the `godot-4.7-stable-linux-verified-v1` entry under *Actions →
 Caches* (or `gh cache delete godot-4.7-stable-linux-verified-v1`), then run it
 again. On a self-hosted runner, delete `~/godot` and
-`~/.local/share/godot/export_templates/4.7.stable` instead.
+`~/.local/share/godot/export_templates/4.7.stable` as well.
 
 ### A branch push fails at "Stamp build version"
 
@@ -207,9 +211,10 @@ cannot. Rename the branch, or take it out of the list in `release.yml`.
 ### A build warns that it "checks … for updates, but is published to …"
 
 The build's `update_repo` names one repository and the release goes to another,
-so whoever installs it never sees the releases after it. Usually a `release.yml`
-from before `RELEASE_REPO` existed, which ignores the variable; copy the current
-workflows. It is expected once, while moving a shipped game to a releases
+so whoever installs it never sees the releases after it. Usually the
+`RELEASE_REPO` variable is not set, or names another repository than
+`update_repo`; or a `release.yml` from before `RELEASE_REPO` existed ignores it,
+so copy the current workflows. It is expected once, while moving a shipped game to a releases
 repository; see [Publishing from a private
 repository](UPDATES.md#publishing-from-a-private-repository).
 
@@ -226,9 +231,11 @@ anyone else installs it.
 Expected on your first release: the *Collect patch notes* step found neither a
 latest release whose manifest names a commit in this history nor a
 `v<name>+<n>` tag, so the notes describe the whole history, capped at 20 lines.
-On a later release it means the latest release's manifest could not be read.
-With `RELEASE_REPO` set there is no tag to fall back on either, because tags are
-created in the releases repository, so check `RELEASE_TOKEN`.
+On a later release the line above it says why: `No previous manifest to carry
+forward.` (the latest release's `manifest.json` could not be downloaded) or
+`…which is not in this history` (the history was rewritten, as by a
+force-push). Without `RELEASE_REPO` the `v<name>+<n>` tags here catch either
+case; with it, tags are created in the releases repository, so nothing does.
 
 ### My change is missing from the patch notes
 
@@ -250,9 +257,12 @@ Two possibilities:
    the template. The log says `Already on <sha>; nothing to do.`
 2. **Your repository forbids it.** PR creation needs
    *Settings → Actions → General → Allow GitHub Actions to create and approve
-   pull requests*. The run ends with `launcher-sync is pushed, but opening the
-   pull request failed.`; the branch is pushed, and the run summary links a
-   compare URL so you can open the PR yourself.
+   pull requests*. The run stays green and warns `launcher-sync is pushed, but
+   this repository does not allow Actions to open pull requests. Open it by
+   hand.`; the run summary links a compare URL so you can open the PR yourself.
+   A run that ends red with `launcher-sync is pushed, but opening the pull
+   request failed. See the run summary.` failed for another reason, which the
+   summary quotes.
 
 ### The sync PR has no CI checks on it
 
