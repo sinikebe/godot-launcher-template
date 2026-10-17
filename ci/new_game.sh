@@ -3,9 +3,10 @@
 #
 #   bash ci/new_game.sh "My Game" com.example.mygame you/my-game
 #
-# It moves the starter files into place, deletes the demo scaffolding, and
-# writes your name, your Android package id and your repository everywhere they
-# belong. Run it once, right after creating your repository from the template.
+# It puts the starter files in place, writes your name, your Android package id
+# and your repository everywhere they belong, and then deletes the demo
+# scaffolding. Run it once, right after creating your repository from the
+# template. If it stops with an error, fix that and run the same command again.
 set -euo pipefail
 
 usage() {
@@ -110,11 +111,23 @@ fi
 
 echo "Setting up '${GAME_NAME}' (${PACKAGE_ID}) for ${REPO}…"
 
-# The workflows are already at .github/workflows/ in a repo made from the
-# template; only the export presets need putting in place, replacing the demo's.
-mv -f template/export_presets.cfg export_presets.cfg
-rm -rf template
+# Checked before anything is written. A template/ with no presets in it is
+# either some other repository's own folder -- whose version.json the step below
+# would reset to 0.1.0 / binary_version 1 -- or what a run leaves behind when
+# rm -rf stops between deleting the file and deleting the folder.
+if [[ ! -f template/export_presets.cfg ]]; then
+	echo "error: there is a template/ here but no template/export_presets.cfg, so this" >&2
+	echo "       is not a fresh copy of the launcher template. Nothing was changed." >&2
+	echo "       If it is one, restore the file (git checkout -- template/) and run" >&2
+	echo "       this again." >&2
+	exit 1
+fi
 
+# template/ is what tells a first run from a finished one, so it stays until
+# every step below has succeeded. A run that stops partway -- no python3, a
+# file it cannot parse -- leaves it in place, and running the same command
+# again starts over from the starter files and finishes the job. Removed any
+# earlier, a re-run found nothing to do and left the example package id behind.
 python3 - "$GAME_NAME" "$PACKAGE_ID" "$REPO" <<'PY'
 import json
 import pathlib
@@ -133,8 +146,11 @@ version.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 # Android identity. A duplicate package id collides with whatever else is using
 # it, and then neither app can update the other -- so this one really matters.
+# The workflows are already at .github/workflows/ in a repo made from the
+# template; only the export presets need putting in place, replacing the demo's.
+# Read from template/ every time, so a re-run starts from the starter file.
 presets = pathlib.Path("export_presets.cfg")
-text = presets.read_text(encoding="utf-8")
+text = pathlib.Path("template/export_presets.cfg").read_text(encoding="utf-8")
 text = re.sub(r'^package/unique_name=".*"$', f'package/unique_name="{package_id}"', text, flags=re.M)
 for key in ("package/name", "application/product_name", "application/file_description"):
     text = re.sub(rf'^{re.escape(key)}=".*"$', f'{key}="{game_name}"', text, flags=re.M)
@@ -160,7 +176,7 @@ PY
 # replaced it with your own, and every rule for guessing is wrong in some real
 # case. So it does not guess: --delete-licence is you stating the answer.
 #
-# Last, after every edit above has succeeded, so an aborted run cannot leave a
+# After every edit above has succeeded, so an aborted run cannot leave a
 # repository that is both half-configured and missing its licence.
 #
 # The launcher's own terms are not at stake either way: they live in
@@ -177,9 +193,9 @@ if [[ "$DELETE_LICENCE" == true ]]; then
   0. Add your own LICENSE -- the repository has none now."
 	else
 		LICENSE_LINE="
-  LICENSE               nothing to delete; there was none"
+  LICENSE               already gone, so nothing to delete"
 		LICENSE_NEXT="
-  0. Add a LICENSE -- the repository has none."
+  0. Add your own LICENSE -- the repository has none now."
 	fi
 elif [[ -e LICENSE || -L LICENSE ]]; then
 	LICENSE_NEXT="
@@ -192,6 +208,10 @@ else
 	LICENSE_NEXT="
   0. Add a LICENSE -- the repository has none."
 fi
+
+# Last of all, so that any step above that fails -- the LICENSE too -- leaves
+# template/ for a re-run.
+rm -rf template
 
 cat <<EOF
 
