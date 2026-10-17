@@ -224,6 +224,11 @@ and merging is your call, because merging publishes a release to your players.
 
 To check right now: **Actions → Sync launcher → Run workflow**.
 
+That check runs the template's new code before you review it, in a job that
+cannot write to your repository; merging is what lets it near your signing key.
+See [What a sync trusts](../README.md#what-a-sync-trusts), including how to stay
+on one version.
+
 The sync cannot update `.github/workflows/`. When the template changes one, the
 run summary says which, and so does the pull request when there is one; copy
 them across by hand — see

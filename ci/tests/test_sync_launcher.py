@@ -90,12 +90,12 @@ class SyncLauncher(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
 
-    def sync(self):
+    def sync(self, ref="main"):
         """As sync-launcher.yml runs it: from a copy, because the sync replaces ci/."""
         copy = self.temp / "sync_launcher.sh"
         shutil.copy(self.game / "ci" / "sync_launcher.sh", copy)
         env = self.env()
-        env.update({"LAUNCHER_TEMPLATE_REPO": self.TEMPLATE, "LAUNCHER_TEMPLATE_REF": "main",
+        env.update({"LAUNCHER_TEMPLATE_REPO": self.TEMPLATE, "LAUNCHER_TEMPLATE_REF": ref,
                     "RUNNER_TEMP": str(self.temp), "GITHUB_OUTPUT": str(self.temp / "output")})
         result = subprocess.run(["bash", str(copy)], cwd=self.game, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -163,6 +163,23 @@ class SyncLauncher(unittest.TestCase):
         self.assertNotEqual(self.stamp()["COMMIT"], first)
         self.assertEqual(self.stamp()["COMMIT"], self.record()["commit"][:8])
 
+    def test_a_tag_holds_the_sync_until_it_is_changed(self):
+        # What the LAUNCHER_TEMPLATE_REF variable does, with a tag shaped like the
+        # template's own release tags.
+        tagged = self.git(self.template, "rev-parse", "HEAD")
+        self.git(self.template, "tag", "v0.1.0+5")
+        self.git(self.template, "push", "-q", str(self.bare), "refs/tags/v0.1.0+5")
+        self.write(self.template, {"addons/launcher/launcher.gd": "extends Control\n# later\n"})
+        self.git(self.template, "commit", "-qam", "Move main on")
+        self.git(self.template, "push", "-q", str(self.bare), "HEAD:main")
+        self.sync("v0.1.0+5")
+        self.assertEqual(self.record()["commit"], tagged)
+        self.assertEqual(self.record()["ref"], "v0.1.0+5")
+        self.commit_game()
+        self.assertIn("Already on", self.sync("v0.1.0+5").stdout)
+        self.sync("main")
+        self.assertNotEqual(self.record()["commit"], tagged)
+
     def test_a_record_that_could_break_out_of_the_constant_is_not_used(self):
         # The commit is not tried here: a record naming another commit is simply
         # synced again, which rewrites the record.
@@ -205,6 +222,66 @@ class SyncLauncher(unittest.TestCase):
 class SyncLauncherOwnerWithUnderscore(SyncLauncher):
     """Managed-user handles hold "_"; the stamp must not refuse them."""
     TEMPLATE = "jdoe_acme/template"
+
+
+class SyncWorkflow(unittest.TestCase):
+    """sync-launcher.yml runs the template's code only in a job that cannot write (#23).
+
+    The check job runs ci/*.sh and the Godot they install straight after the sync,
+    before anyone has reviewed them. The job that pushes and opens the pull request
+    runs only the game's own copy of the sync script, which copies files.
+    """
+    # Running something the template supplies: a script under ci/, or the Godot
+    # that ci/install_godot.sh put in ~/godot.
+    RUNS_TEMPLATE_CODE = re.compile(r"\b(?:bash|sh|source|python3) (?:\./)?ci/|~/godot/")
+
+    def setUp(self):
+        # The template's own workflow only: workflows are not synced, so a game's copy
+        # may predate this split, and the sync's run summary already says it changed.
+        path = CI_DIR.parent / ".github" / "workflows" / "sync-launcher.yml"
+        version = CI_DIR.parent / "version.json"
+        try:
+            is_template = json.loads(version.read_text(encoding="utf-8")).get("game_name") == "Launcher Demo"
+        except (OSError, ValueError):
+            is_template = False
+        if not is_template or not path.is_file():
+            self.skipTest("checks the template's own sync-launcher.yml")
+        text = path.read_text(encoding="utf-8")
+        jobs = text[text.index("\njobs:\n"):]
+        self.jobs = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", jobs, re.M | re.S))
+        self.runners = [name for name, body in self.jobs.items() if self.RUNS_TEMPLATE_CODE.search(body)]
+        self.writers = [name for name, body in self.jobs.items() if re.search(r"^      [a-z-]+: write$", body, re.M)]
+
+    def test_there_is_one_job_of_each_kind(self):
+        self.assertEqual(len(self.runners), 1, self.jobs.keys())
+        self.assertEqual(len(self.writers), 1, self.jobs.keys())
+        self.assertNotEqual(self.runners, self.writers)
+
+    def test_the_job_that_runs_the_templates_code_can_only_read(self):
+        for name in self.runners:
+            body = self.jobs[name]
+            self.assertRegex(body, r"(?m)^    permissions:\n      contents: read\n(?!      )", name)
+            self.assertNotIn(": write", body, name)
+            self.assertNotIn("secrets.", body, name)
+            # A token left in .git/config is readable by every later step.
+            self.assertIn("persist-credentials: false", body, name)
+            # A cache saved after it ran would carry its ~/godot to release.yml.
+            self.assertNotRegex(body, r"uses: actions/cache@", name)
+
+    def test_the_job_that_can_write_runs_nothing_from_the_template(self):
+        for name in self.writers:
+            body = self.jobs[name]
+            self.assertNotRegex(body, self.RUNS_TEMPLATE_CODE, name)
+            self.assertEqual(re.findall(r"uses: ([\w./-]+)@", body), ["actions/checkout"], name)
+            self.assertEqual(re.findall(r"(?m)^ +bash (\S+)", body), ['"${RUNNER_TEMP}/sync_launcher.sh"'], name)
+
+    def test_the_pull_request_is_opened_only_for_the_commit_that_was_checked(self):
+        for name in self.writers:
+            body = self.jobs[name]
+            self.assertRegex(body, r"(?m)^    needs: %s$" % re.escape(self.runners[0]), name)
+            self.assertIn("${{ needs.%s.outputs.commit }}" % self.runners[0], body, name)
+            opening = body[body.index("- name: Open pull request"):]
+            self.assertIn("if: steps.checked.outputs.ok == 'true'", opening.splitlines()[1], name)
 
 
 if __name__ == "__main__":
