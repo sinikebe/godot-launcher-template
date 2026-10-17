@@ -193,9 +193,9 @@ if [[ "$DELETE_LICENCE" == true ]]; then
   0. Add your own LICENSE -- the repository has none now."
 	else
 		LICENSE_LINE="
-  LICENSE               nothing to delete; there was none"
+  LICENSE               already gone, so nothing to delete"
 		LICENSE_NEXT="
-  0. Add a LICENSE -- the repository has none."
+  0. Add your own LICENSE -- the repository has none now."
 	fi
 elif [[ -e LICENSE || -L LICENSE ]]; then
 	LICENSE_NEXT="

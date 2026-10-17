@@ -151,9 +151,11 @@ class NewGame(unittest.TestCase):
         self.write("template/page.html", "<html>\n")
         failed = self.setup_game()
         self.assertNotEqual(failed.returncode, 0, failed.stdout)
+        self.assertNotIn("Done.", failed.stdout)
         for name, text in FILES.items():
             if name != "template/export_presets.cfg":
                 self.assertEqual(self.read(name), text, "%s changed by a run that could not finish" % name)
+        self.assertEqual(self.read("template/page.html"), "<html>\n", "the other repository's template/ was touched")
 
     def test_a_licence_that_cannot_be_deleted_can_be_run_again(self):
         (self.root / "LICENSE").unlink()
