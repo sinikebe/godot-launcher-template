@@ -444,7 +444,9 @@ is enough: the launcher reads its config after mounting the content pack.
 3. Straight away, set `RELEASE_REPO`, then run the release again on the same
    commit (*Actions → Release → Run workflow*), so the releases repository holds
    that release too, with the changelog players already have. Until it has run, a
-   copy that took step 2's release finds no release to check.
+   copy that took step 2's release finds no release to check. It reads that
+   changelog from this repository's latest release, so run it while this
+   repository is still public.
 4. Make the code repository private only once players have had time to update.
    A copy that never fetched step 2's release keeps polling here, and stops
    updating the moment this repository goes private.

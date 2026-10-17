@@ -89,10 +89,12 @@ def options_of(text, number):
 FAKE_GH = """#!/usr/bin/env bash
 echo "$@" >> "$FAKE_GH_LOG"
 echo "${GH_REPO:-}" >> "$FAKE_GH_LOG.repo"
-if [[ "$1 $2" == "release list" ]]; then
-  [[ -n "${FAKE_GH_LIST:-}" ]] || exit 1
-  echo "$FAKE_GH_LIST"
-  exit 0
+if [[ "$1" == api ]]; then
+  case "${FAKE_GH_LATEST:-}" in
+    found) exit 0 ;;
+    404) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+    *) echo "error connecting to api.github.com" >&2; exit 1 ;;
+  esac
 fi
 if [[ "$FAKE_GH_MODE" == ok ]]; then
   out=""
@@ -339,37 +341,40 @@ class CollectChanges(Sandbox):
         self.commit("old")
         released = self.git("rev-parse", "--short=8", "HEAD")
         self.commit("new")
-        result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok", FAKE_GH_LIST="0",
+        result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="ok", FAKE_GH_LATEST="404",
                                  FAKE_GH_MANIFEST=self.manifest(released),
                                  GITHUB_REPOSITORY="me/game", RELEASE_REPO="me/game-releases")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("me/game-releases has no release yet", result.stdout)
         calls = self.gh_log.read_text().splitlines()
-        self.assertTrue(calls[0].startswith("release list"), calls)
+        # `gh api`, which every gh has: `release list --json` needs gh 2.43.
+        self.assertEqual(calls[0], "api repos/me/game-releases/releases/latest --silent")
         self.assertTrue(calls[1].startswith("release download"), calls)
         self.assertEqual(self.gh_repos(), ["me/game-releases", "me/game"])
         self.assertEqual(self.changes(), ["new"])
 
     def test_a_releases_repo_with_a_release_is_read_and_this_repo_is_not(self):
         self.commit("a")
-        for listed in ("1", ""):  # one release, or the list itself failed: not "none"
-            with self.subTest(listed=listed):
+        # one release, or the question itself failed: either way not "none"
+        for latest, warned in (("found", False), ("", True)):
+            with self.subTest(latest=latest):
                 self.gh_log.unlink(missing_ok=True)
                 pathlib.Path(str(self.gh_log) + ".repo").unlink(missing_ok=True)
-                result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail", FAKE_GH_LIST=listed,
+                result = self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail", FAKE_GH_LATEST=latest,
                                          GITHUB_REPOSITORY="me/game", RELEASE_REPO="me/game-releases")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertNotIn("has no release yet", result.stdout)
                 self.assertEqual(set(self.gh_repos()), {"me/game-releases"})
+                self.assertEqual("::warning::Could not tell whether me/game-releases has a release" in result.stdout, warned)
 
     def test_publishing_here_never_lists_releases(self):
         self.commit("a")
         for repo in ("", "me/game", "Me/GAME"):
             with self.subTest(release_repo=repo):
                 self.gh_log.unlink(missing_ok=True)
-                self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail", FAKE_GH_LIST="0",
+                self.run_script("collect_changes.sh", GH_TOKEN="x", FAKE_GH_MODE="fail", FAKE_GH_LATEST="404",
                                 GITHUB_REPOSITORY="me/game", RELEASE_REPO=repo)
-                self.assertFalse(any(c.startswith("release list") for c in self.gh_log.read_text().splitlines()))
+                self.assertFalse(any(c.startswith("api ") for c in self.gh_log.read_text().splitlines()))
 
     def test_without_release_repo_gh_looks_in_this_repository(self):
         self.commit("a")
@@ -496,6 +501,19 @@ class PrepareBuild(PrepareHelpers):
                 result = self.run_script("prepare_build.sh", **env)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual("::warning::This build checks me/game-releases for updates" in result.stdout, warned)
+
+    def test_the_warning_reads_the_config_the_build_reads(self):
+        # project.godot's launcher/config_path, which BuildInfo reads, not the default
+        # file that may still sit at the root.
+        (self.root / "launcher_config.tres").write_text('[resource]\nupdate_repo = "me/game"\n', encoding="utf-8")
+        (self.root / "config").mkdir()
+        (self.root / "config" / "game.tres").write_text('[resource]\nupdate_repo = "me/game-releases"\n', encoding="utf-8")
+        (self.root / "project.godot").write_text(PROJECT + '\n[launcher]\n\nconfig_path="res://config/game.tres"\n',
+                                                 encoding="utf-8")
+        result = self.run_script("prepare_build.sh", GITHUB_REPOSITORY="me/game")
+        self.assertIn("::warning::This build checks me/game-releases for updates", result.stdout)
+        result = self.run_script("prepare_build.sh", GITHUB_REPOSITORY="me/game", RELEASE_REPO="me/game-releases")
+        self.assertNotIn("::warning::", result.stdout)
 
     def test_an_updater_turned_off_is_not_warned_about(self):
         (self.root / "launcher_config.tres").write_text('[resource]\nupdate_repo = ""\n', encoding="utf-8")

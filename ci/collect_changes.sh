@@ -39,12 +39,20 @@ if [[ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]; then
 	FROM_REPO="$RELEASE_REPO"
 	# A releases repository with no release yet is a game moving to one: its
 	# releases so far are in this repository, and so is the history its players
-	# have. Only when the list is known to be empty -- an error is not "none".
-	if [[ -n "${GITHUB_REPOSITORY:-}" && "${RELEASE_REPO,,}" != "${GITHUB_REPOSITORY,,}" ]] \
-		&& [[ "$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq length 2>/dev/null)" == "0" ]]; then
-		echo "${RELEASE_REPO} has no release yet; starting from the latest release in ${GITHUB_REPOSITORY}."
-		FROM_REPO="$GITHUB_REPOSITORY"
-		export GH_REPO="$FROM_REPO"
+	# have. Only when GitHub says there is none -- a 404 for the latest release,
+	# which drafts and prereleases never are. Any other error is not "none".
+	# `gh api`, which every gh has, rather than `gh release list --json`, which
+	# gh before 2.43 rejects.
+	if [[ -n "${GITHUB_REPOSITORY:-}" && "${RELEASE_REPO,,}" != "${GITHUB_REPOSITORY,,}" ]]; then
+		if LATEST_ERR="$(gh api "repos/${RELEASE_REPO}/releases/latest" --silent 2>&1)"; then
+			:
+		elif [[ "$LATEST_ERR" == *"(HTTP 404)"* ]]; then
+			echo "${RELEASE_REPO} has no release yet; starting from the latest release in ${GITHUB_REPOSITORY}."
+			FROM_REPO="$GITHUB_REPOSITORY"
+			export GH_REPO="$FROM_REPO"
+		else
+			echo "::warning::Could not tell whether ${RELEASE_REPO} has a release yet, so the notes start from its latest release, if any: ${LATEST_ERR}"
+		fi
 	fi
 	if gh release download --pattern manifest.json --output "$OUT_DIR/previous.json" --clobber 2>/dev/null; then
 		echo "Carried forward the changelog of the latest release${FROM_REPO:+ in ${FROM_REPO}}."

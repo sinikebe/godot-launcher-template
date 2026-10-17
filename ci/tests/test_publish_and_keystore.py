@@ -391,6 +391,12 @@ class CheckReleaseRepo(Sandbox):
         self.assertNotIn("secretvalue", result.stdout + result.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_a_classic_token_from_before_2021_is_refused_too(self):
+        result = self.check(GH_TOKEN="0123456789abcdef0123456789abcdef01234567")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("classic personal access token", result.stderr)
+        self.assertNotIn("0123456789abcdef", result.stdout + result.stderr)
+
     def test_a_fine_grained_token_is_accepted(self):
         result = self.check(GH_TOKEN="github_pat_value")
         self.assertEqual(result.returncode, 0, result.stderr)

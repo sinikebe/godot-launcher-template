@@ -48,9 +48,10 @@ if [[ "${RELEASE_TOKEN_SET:-}" != "true" ]]; then
 fi
 
 # A classic token reaches every repository its owner can, the game's private
-# source included, and it would ship code to every player. Matched by its prefix
-# with a builtin, so the token itself is never printed or put in argv.
-if [[ "${GH_TOKEN:-}" == ghp_* ]]; then
+# source included, and it would ship code to every player. Matched by its prefix,
+# or by the bare 40 hex digits of one made before 2021, with a builtin, so the
+# token itself is never printed or put in argv.
+if [[ "${GH_TOKEN:-}" == ghp_* || "${GH_TOKEN:-}" =~ ^[0-9a-f]{40}$ ]]; then
 	echo "::error::RELEASE_TOKEN is a classic personal access token, which can reach every repository you can. Use a fine-grained token limited to ${RELEASE_REPO}." >&2
 	exit 1
 fi

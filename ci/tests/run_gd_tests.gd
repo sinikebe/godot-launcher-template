@@ -155,6 +155,9 @@ func _test_format_entries() -> void:
 	eq(f.call([_entry(3, ["x", "…and lots more changes.", "…and 0 more changes."], "1.3")], 2, false),
 			"v1.3  ·  build 3\n  •  x\n\n…and 2 more changes.",
 			"a line that only looks like the count line counts as one change")
+	eq(f.call([_entry(3, ["x", "…and 9223372036854775807 more changes.", "y"], "1.3")], 2, false),
+			"v1.3  ·  build 3\n  •  x\n\n…and 2 more changes.",
+			"a count too long to be CI's counts as one change, and cannot overflow the total")
 
 
 # ---------------------------------------------------------------------------

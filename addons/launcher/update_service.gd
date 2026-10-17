@@ -756,7 +756,8 @@ func _entry_has_changes(entry: Dictionary) -> bool:
 ## (ci/collect_changes.sh), which stands for that many, not one.
 func _changes_in(change: Variant) -> int:
 	if change is String:
-		var found := RegEx.create_from_string("^…and (\\d+) more changes?\\.$").search(change)
+		# At most nine digits, so the count cannot overflow the int it is added to.
+		var found := RegEx.create_from_string("^…and (\\d{1,9}) more changes?\\.$").search(change)
 		if found != null:
 			return maxi(int(found.get_string(1)), 1)
 	return 1

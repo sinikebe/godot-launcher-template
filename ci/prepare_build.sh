@@ -130,8 +130,12 @@ fi
 # which ignores the variable. Only a warning: moving a game that has already
 # shipped to a releases repository does this on purpose, once.
 PUBLISH_TO="${RELEASE_REPO:-${GITHUB_REPOSITORY:-}}"
-if [[ -n "$PUBLISH_TO" && -f launcher_config.tres ]]; then
-	POLLS="$(sed -n 's/^update_repo = "\(.*\)"$/\1/p' launcher_config.tres | head -1)"
+# The config the build reads: project.godot's launcher/config_path, as BuildInfo
+# reads it, or the default.
+LAUNCHER_CONFIG="$(sed -n 's|^config_path="res://\(.*\)"$|\1|p' project.godot 2>/dev/null | head -1)"
+LAUNCHER_CONFIG="${LAUNCHER_CONFIG:-launcher_config.tres}"
+if [[ -n "$PUBLISH_TO" && -f "$LAUNCHER_CONFIG" ]]; then
+	POLLS="$(sed -n 's/^update_repo = "\(.*\)"$/\1/p' "$LAUNCHER_CONFIG" | head -1)"
 	if [[ -n "$POLLS" && "${POLLS,,}" != "${PUBLISH_TO,,}" ]]; then
 		echo "::warning::This build checks ${POLLS} for updates, but is published to ${PUBLISH_TO}, so the releases after it will not reach it. See docs/UPDATES.md, \"Publishing from a private repository\"."
 	fi
