@@ -111,6 +111,18 @@ fi
 
 echo "Setting up '${GAME_NAME}' (${PACKAGE_ID}) for ${REPO}…"
 
+# Checked before anything is written. A template/ with no presets in it is
+# either some other repository's own folder -- whose version.json the step below
+# would reset to 0.1.0 / binary_version 1 -- or what a run leaves behind when
+# rm -rf stops between deleting the file and deleting the folder.
+if [[ ! -f template/export_presets.cfg ]]; then
+	echo "error: there is a template/ here but no template/export_presets.cfg, so this" >&2
+	echo "       is not a fresh copy of the launcher template. Nothing was changed." >&2
+	echo "       If it is one, restore the file (git checkout -- template/) and run" >&2
+	echo "       this again." >&2
+	exit 1
+fi
+
 # template/ is what tells a first run from a finished one, so it stays until
 # every step below has succeeded. A run that stops partway -- no python3, a
 # file it cannot parse -- leaves it in place, and running the same command
@@ -157,8 +169,6 @@ text = re.sub(r'^config/name=".*"$', f'config/name="{game_name}"', text, flags=r
 project.write_text(text, encoding="utf-8")
 PY
 
-rm -rf template
-
 # The root LICENSE, only if you asked for it.
 #
 # It arrives from the template carrying the template author's copyright, so it
@@ -166,7 +176,7 @@ rm -rf template
 # replaced it with your own, and every rule for guessing is wrong in some real
 # case. So it does not guess: --delete-licence is you stating the answer.
 #
-# Last, after every edit above has succeeded, so an aborted run cannot leave a
+# After every edit above has succeeded, so an aborted run cannot leave a
 # repository that is both half-configured and missing its licence.
 #
 # The launcher's own terms are not at stake either way: they live in
@@ -198,6 +208,10 @@ else
 	LICENSE_NEXT="
   0. Add a LICENSE -- the repository has none."
 fi
+
+# Last of all, so that any step above that fails -- the LICENSE too -- leaves
+# template/ for a re-run.
+rm -rf template
 
 cat <<EOF
 

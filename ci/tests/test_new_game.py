@@ -72,19 +72,25 @@ class NewGame(unittest.TestCase):
     def read(self, name):
         return (self.root / name).read_text(encoding="utf-8")
 
-    def setup_game(self, path=None):
-        return subprocess.run(["bash", str(self.root / "ci" / "new_game.sh"), *ARGS], cwd=self.root,
+    def setup_game(self, path=None, flags=()):
+        return subprocess.run(["bash", str(self.root / "ci" / "new_game.sh"), *flags, *ARGS], cwd=self.root,
                               env=self.env(path), capture_output=True, text=True)
 
     def without_python(self):
-        """A PATH holding everything the script runs except python3."""
+        """A PATH holding what a machine without Python still has.
+
+        mv and cp too, though the script does not use them: without them, a move put
+        back ahead of the python step would fail on its own and change nothing, and
+        this test would pass on the very bug it is here for (#28).
+        """
         bin_dir = pathlib.Path(self._dir.name) / "bin"
         bin_dir.mkdir()
         for tool in ("bash", "git", "sed", "grep", "tr", "cat", "rm", "mv", "cp"):
             found = shutil.which(tool)
-            if found is None:
+            if found is None and tool in ("bash", "git"):
                 self.skipTest("needs %s" % tool)
-            (bin_dir / tool).symlink_to(found)
+            if found is not None:
+                (bin_dir / tool).symlink_to(found)
         return str(bin_dir)
 
     def assert_set_up(self, result):
@@ -113,6 +119,9 @@ class NewGame(unittest.TestCase):
             "launcher_config.tres is not UTF-8": (
                 lambda: (self.root / "launcher_config.tres").write_bytes(b'game_title = "\xe9"\n'),
                 lambda: self.write("launcher_config.tres", FILES["launcher_config.tres"])),
+            "export_presets.cfg is a directory": (
+                lambda: ((self.root / "export_presets.cfg").unlink(), (self.root / "export_presets.cfg").mkdir()),
+                lambda: (self.root / "export_presets.cfg").rmdir()),
             "project.godot is a directory": (
                 lambda: ((self.root / "project.godot").unlink(), (self.root / "project.godot").mkdir()),
                 lambda: ((self.root / "project.godot").rmdir(), self.write("project.godot", FILES["project.godot"]))),
@@ -135,6 +144,29 @@ class NewGame(unittest.TestCase):
         for name, text in FILES.items():
             self.assertEqual(self.read(name), text, "%s changed by a run that could not finish" % name)
         self.assert_set_up(self.setup_game())
+
+    def test_a_template_folder_without_the_presets_changes_nothing(self):
+        """Not a fresh copy of the template: some other template/ folder. Nothing may change."""
+        (self.root / "template" / "export_presets.cfg").unlink()
+        self.write("template/page.html", "<html>\n")
+        failed = self.setup_game()
+        self.assertNotEqual(failed.returncode, 0, failed.stdout)
+        for name, text in FILES.items():
+            if name != "template/export_presets.cfg":
+                self.assertEqual(self.read(name), text, "%s changed by a run that could not finish" % name)
+
+    def test_a_licence_that_cannot_be_deleted_can_be_run_again(self):
+        (self.root / "LICENSE").unlink()
+        (self.root / "LICENSE").mkdir()
+        failed = self.setup_game(flags=["--delete-licence"])
+        self.assertNotEqual(failed.returncode, 0, failed.stdout)
+        self.assertTrue((self.root / "template" / "export_presets.cfg").is_file(),
+                        "template/ is gone, so --delete-licence can no longer be retried")
+        (self.root / "LICENSE").rmdir()
+        self.write("LICENSE", FILES["LICENSE"])
+        again = self.setup_game(flags=["--delete-licence"])
+        self.assert_set_up(again)
+        self.assertFalse((self.root / "LICENSE").exists())
 
     def test_a_finished_setup_is_not_run_twice(self):
         self.assert_set_up(self.setup_game())
