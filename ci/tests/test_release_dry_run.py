@@ -638,7 +638,10 @@ class KeepInStep(unittest.TestCase):
 
     def test_the_sync_always_runs_on_githubs_machine(self):
         # It runs scripts just pulled from the template, before anyone reviews them.
-        self.assertEqual(self.runs_on("sync-launcher.yml"), "ubuntu-latest")
+        text = (REPO / ".github" / "workflows" / "sync-launcher.yml").read_text(encoding="utf-8")
+        found = re.findall(r"^    runs-on: (.+)$", text, re.M)
+        self.assertGreaterEqual(len(found), 1)
+        self.assertEqual(set(found), {"ubuntu-latest"})
 
     def test_the_publish_step_of_the_real_workflow_passes_what_publish_release_reads(self):
         real = self.step(self.release, "Publish release")

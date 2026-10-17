@@ -35,6 +35,14 @@ with each job opting into the minimum it needs. Flag any job holding a scope it
 does not use. Note that a token scoped to `contents` cannot write
 `.github/workflows/` — that limitation is load-bearing in the sync design.
 
+`sync-launcher.yml` is two jobs for the same reason (#23). `check` runs what it
+has just pulled from the template — `ci/*.sh`, the Godot they install, the
+project — with `contents: read`, `persist-credentials: false` and a cache it only
+restores. `pull-request` holds the write scopes and runs nothing but the game's
+own copy of `ci/sync_launcher.sh`, git and gh. Flag anything that moves template
+code into the writing job, or a write scope, a secret or a cache save into the
+check. `ci/tests/test_sync_launcher.py` holds both rules.
+
 **Secret handling.** The established rules in `ci/setup_keystore.sh` and
 `docs/UPDATES.md#signing`, which you should hold new code to:
 

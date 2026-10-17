@@ -256,6 +256,7 @@ workflow edit, so none shows up as drift on a launcher sync.
 | `RELEASE_REPO` | variable | Publish to this public `owner/name` instead ([how](docs/UPDATES.md#publishing-from-a-private-repository)) |
 | `RELEASE_TOKEN` | secret | A fine-grained token that can write to `RELEASE_REPO` |
 | `CI_RUNNER`, `RELEASE_RUNNER` | variables | Runner label for pull-request checks and for releases; private repositories only ([own machine](docs/UPDATES.md#running-the-workflows-on-your-own-machine)) |
+| `LAUNCHER_TEMPLATE_REF` | variable | The template tag or branch the launcher sync follows; unset, `main` ([what a sync trusts](#what-a-sync-trusts)) |
 
 ## Making it yours
 
@@ -674,11 +675,30 @@ run, and copying it across drops your branch, so put the edit back after
 copying.
 
 > A pull request opened with `GITHUB_TOKEN` does not trigger other workflows, so
-> the sync job runs the import-and-boot check itself before opening the PR. To
+> the sync runs the import-and-boot check itself before opening the PR. To
 > run your full CI on it as well, close the pull request and reopen it, and
 > again after each sync run that updates it. A personal access token also
 > works, but only by editing `sync-launcher.yml`, which the sync then reports
 > as changed upstream on every run.
+
+### What a sync trusts
+
+Syncing runs this repository's code in your game. Before you have reviewed
+anything, the sync's check job runs the new `ci/` scripts, the Godot they
+install and the launcher itself. That job can read your repository, a private
+game's source included, but it holds none of your secrets and cannot push,
+publish or open anything. The job that opens the pull request runs none of that code. Once you
+merge, the same code runs in your releases with your signing key and
+`RELEASE_TOKEN`, and the launcher runs on every player's device.
+
+So hold the template to the bar you set for any dependency:
+
+- **Review** `ci/` and `addons/launcher/` in each sync pull request before you
+  merge it.
+- **Move when you choose:** set the `LAUNCHER_TEMPLATE_REF` repository variable
+  to one of this repository's tags, and the sync stays on that tag until you
+  change the variable. Unset, it follows `main`.
+- **Own the code:** fork the template, as below.
 
 ## Layout
 
@@ -707,9 +727,11 @@ copying.
 ## Does this need anything from me?
 
 No. The template is public, and a game syncs from it with an anonymous clone —
-no token, no account, no permission. Fork it if you would rather not depend on
-this repo moving under you, and point `LAUNCHER_TEMPLATE_REPO` in the sync
-workflow at your fork. In the fork itself, change the `if:` line beside it too,
+no token, no account, no permission. To stay on one version, set the
+`LAUNCHER_TEMPLATE_REF` variable to a tag ([what a sync
+trusts](#what-a-sync-trusts)). Fork it if you would rather not depend on this
+repo at all, and point `LAUNCHER_TEMPLATE_REPO` in the sync workflow at your
+fork. In the fork itself, change the `if:` line beside it too,
 or the fork opens sync pull requests against itself.
 
 Nothing is shared between games that use it: each one has its own repository,

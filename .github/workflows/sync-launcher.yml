@@ -5,6 +5,11 @@ name: Sync launcher
 # Opens a pull request and stops there -- it never merges. Merging main in a
 # consuming game publishes a release to players, so deciding a launcher change
 # is safe to ship is the game developer's call. Do not add a merge step here.
+#
+# Two jobs, because the check runs code nobody has reviewed yet: the template's
+# ci/*.sh, its launcher, and the Godot its install script fetches. That job can
+# only read this repository. The job that pushes and opens the pull request runs
+# none of it. Keep it that way; see README.md, "What a sync trusts".
 
 on:
   schedule:
@@ -13,8 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Template ref to sync from"
-        default: main
+        description: "Template branch or tag to sync from (blank: the LAUNCHER_TEMPLATE_REF variable, or main)"
         required: false
 
 permissions:
@@ -28,13 +32,15 @@ env:
   GODOT_VERSION: "4.7"
   GODOT_RELEASE: stable
   LAUNCHER_TEMPLATE_REPO: sinikebe/godot-launcher-template
-  LAUNCHER_TEMPLATE_REF: ${{ inputs.ref || 'main' }}
+  # A branch or a tag. Set the LAUNCHER_TEMPLATE_REF repository variable to a
+  # tag to stay on it until you change the variable, with no edit here.
+  LAUNCHER_TEMPLATE_REF: ${{ inputs.ref || vars.LAUNCHER_TEMPLATE_REF || 'main' }}
   # Where release.yml publishes, so the build stamp below checks the same thing.
   RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
 jobs:
-  sync:
-    name: Sync from template
+  check:
+    name: Sync and check
     # Always GitHub's machine, never one of your own: this job runs the scripts
     # it has just pulled from the template before anyone has reviewed them.
     runs-on: ubuntu-latest
@@ -42,15 +48,22 @@ jobs:
     # HEAD and open a pull request against itself. Change this alongside
     # LAUNCHER_TEMPLATE_REPO if you maintain your own fork of the template.
     if: github.repository != 'sinikebe/godot-launcher-template'
+    # Read-only, so a hostile template commit cannot push, publish or open
+    # anything from here. Never give this job a write scope or a secret.
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      commit: ${{ steps.sync.outputs.commit }}
 
     steps:
       - name: Check out
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Nothing here pushes, and a token left in .git/config is readable by
+          # every step after this one.
+          persist-credentials: false
 
       - name: Sync launcher
         id: sync
@@ -69,9 +82,12 @@ jobs:
             echo "Launcher already up to date."
           fi
 
-      - name: Cache Godot
+      - name: Restore cached Godot
         if: steps.diff.outputs.changed == 'true'
-        uses: actions/cache@v6
+        # Restore only. A cache saved at the end of this job would hold whatever
+        # the template's install script left in ~/godot, under the key that
+        # release.yml restores and runs with your signing key.
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/godot
@@ -87,6 +103,8 @@ jobs:
         # so the PR would otherwise arrive with no checks at all. Import and boot
         # the project here instead: that catches the realistic breakage, a
         # launcher change the game's config or autoloads no longer satisfy.
+        # What it stamps or builds stays on this machine: the pull request is
+        # made from a fresh checkout in the job below.
         if: steps.diff.outputs.changed == 'true'
         run: |
           bash ci/collect_changes.sh || true
@@ -97,27 +115,48 @@ jobs:
           trap 'rm -rf "$scratch"' EXIT
           HOME="$scratch" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" \
             ~/godot/godot --headless --path . --quit-after 120
-          # prepare_build.sh stamps generated values; keep them out of the PR.
-          #
-          # One pathspec at a time, and only for files git actually tracks.
-          # `git checkout -- a b` is all-or-nothing: if either pathspec is not
-          # in the index it restores NEITHER, so build_version.gd would stay
-          # stamped and the `git add -A` below would commit it into the sync
-          # PR -- silently, because the error went to /dev/null. Being
-          # untracked is what matters, not being missing: a file present on
-          # disk but outside the index fails identically, which is the case a
-          # game hits when its own .gitignore excludes export_presets.cfg (as
-          # gitignore.io's Godot template, and github/gitignore before Feb
-          # 2025, both do).
-          for generated in build_version.gd export_presets.cfg; do
-            if git ls-files --error-unmatch "$generated" >/dev/null 2>&1; then
-              git checkout -- "$generated"
-            fi
-          done
-          git clean -fd build 2>/dev/null || true
+
+  pull-request:
+    name: Open pull request
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    # The only job that can write, and it runs nothing the template supplies:
+    # this repository's own ci/sync_launcher.sh, which only copies files, then
+    # git and gh. Never add a step here that runs ci/*.sh after the sync, the
+    # project, or Godot. That belongs in the check job above.
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Sync launcher
+        id: sync
+        # The same script the check job ran, from the same commit of this
+        # repository, so it copies the same files.
+        run: |
+          cp ci/sync_launcher.sh "${RUNNER_TEMP}/sync_launcher.sh"
+          bash "${RUNNER_TEMP}/sync_launcher.sh"
+
+      - name: Is this what was checked?
+        id: checked
+        env:
+          CHECKED: ${{ needs.check.outputs.commit }}
+          SYNCED: ${{ steps.sync.outputs.commit }}
+        run: |
+          if [[ -z "$SYNCED" || "$SYNCED" != "$CHECKED" ]]; then
+            echo "::warning::The template moved from ${CHECKED:0:8} to ${SYNCED:0:8} after the check, so no pull request was opened. The next run checks the new commit."
+          elif [[ -z "$(git status --porcelain)" ]]; then
+            echo "Nothing left to change: the launcher was brought up to date after the check."
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Open pull request
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.checked.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: launcher-sync
@@ -168,7 +207,7 @@ jobs:
 
           > $SUBJECT
 
-          The project was imported and booted headless on this branch before the PR was opened.
+          Before this pull request was opened, a separate job with read-only access synced the same commit and imported and booted the project headless.
 
           **Review before merging** -- merging publishes a release to players."
 

@@ -267,7 +267,7 @@ Two possibilities:
 ### The sync PR has no CI checks on it
 
 Expected. A pull request opened with the built-in `GITHUB_TOKEN` cannot trigger
-other workflows — GitHub blocks that to prevent loops. The sync job imports and
+other workflows — GitHub blocks that to prevent loops. The sync imports and
 boots your project itself before opening the PR, which covers the realistic
 breakage. To run your full CI on it as well, close the pull request and reopen
 it, and again after each sync run that updates it. A personal access token also

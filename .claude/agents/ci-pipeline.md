@@ -65,6 +65,9 @@ on `LauncherConfig`.
   so they work from any cwd.
 - `ci/sync_launcher.sh` overwrites itself while running, which is why the
   workflow copies it to `$RUNNER_TEMP` first. Preserve that.
+- `sync-launcher.yml` runs the freshly synced `ci/*.sh` only in its read-only
+  `check` job. The `pull-request` job, which can write, re-runs the sync and
+  must never run a synced script, the project or Godot after it (#23).
 - Files are LF-normalised by `.gitattributes`; a CRLF shell script fails on the
   runner with `\r: command not found`.
 
