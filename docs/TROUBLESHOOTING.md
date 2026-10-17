@@ -112,6 +112,21 @@ which makes every certificate look invalid.
 The game's `launcher_config.tres` still has the template's `update_repo`. Set it
 to your game's own repository, or to the releases repository it publishes to.
 
+### The bar says "The update check did not finish."
+
+The check stopped partway, so the launcher gave up on it after 45 seconds and
+turned the button back on. If trying again ends the same way every time, the
+installed app is older than the content pack it is running, and the pack's
+launcher code calls something that app build does not have. A debug build's log
+names the call in a `SCRIPT ERROR`. The updater cannot fetch its own fix from
+there: reinstall the app from the releases page, whose newest build carries
+matching code.
+
+To keep it from reaching players, keep the CI step *Check launcher code still
+runs on older binaries* passing; `ci/check_binary_skew.py` lists what it cannot
+follow. A connection that stalls past the request's own 30-second limit can end
+the same way once, and then trying again works.
+
 ---
 
 ## Builds

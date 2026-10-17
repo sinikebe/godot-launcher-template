@@ -62,6 +62,7 @@ func _initialize() -> void:
 	_test_checksum_at_mount()
 	_test_staging_sweep()
 	_test_too_new_manifest_is_not_cached()
+	_test_check_deadline()
 	_cleanup()
 
 	print("%d checks, %d failed" % [_checks, _fails])
@@ -716,6 +717,51 @@ func _test_too_new_manifest_is_not_cached() -> void:
 		_us.manifest = {}
 		eq(_versions(_us.full_changelog()), [8], "a readable manifest (schema %s) is cached" % str(schema))
 	_reset_build(2)
+
+
+## A check stopped by a script error never reaches _finish() or _fail() (#24), so
+## its deadline has to end it. Driven by hand: the real deadline is a timer.
+func _test_check_deadline() -> void:
+	check(_us.CHECK_DEADLINE > _us.MANIFEST_TIMEOUT, "the check deadline outlasts the manifest request's own timeout")
+
+	# What a check that died after starting leaves behind.
+	_us._check_serial += 1
+	var serial: int = _us._check_serial
+	_us._busy = true
+	_us._set_state(_us.State.CHECKING)
+	_us._on_check_overdue(serial)
+	eq(_us.state, _us.State.FAILED, "the deadline fails a check that never finished")
+	check(not _us._busy, "after the deadline, the next check can start")
+	check(not _us.status_text().is_empty(), "after the deadline, the bar says what happened")
+
+	# A check that finished is left alone.
+	_us._check_serial += 1
+	serial = _us._check_serial
+	_us._finish(_us.State.UP_TO_DATE, "")
+	_us._on_check_overdue(serial)
+	eq(_us.state, _us.State.UP_TO_DATE, "the deadline leaves a finished check alone")
+
+	# An older check's deadline cannot end a newer check.
+	_us._check_serial += 1
+	var older: int = _us._check_serial
+	_us._check_serial += 1
+	_us._busy = true
+	_us._set_state(_us.State.CHECKING)
+	_us._on_check_overdue(older)
+	eq(_us.state, _us.State.CHECKING, "an older check's deadline leaves a newer check running")
+	check(_us._busy, "an older check's deadline leaves the newer check busy")
+	_us._busy = false
+
+	# check_for_updates() numbers each check and marks it settled when it ends.
+	var repo: String = _bi.config.update_repo
+	_bi.config.update_repo = ""
+	var before: int = _us._check_serial
+	_us.check_for_updates()
+	_bi.config.update_repo = repo
+	eq(_us._check_serial, before + 1, "each check gets its own deadline")
+	eq(_us._settled_serial, before + 1, "a check that ends early is settled, so its deadline does nothing")
+	eq(_us.state, _us.State.UNAVAILABLE, "a check with no update_repo ends at once")
+	_us._finish(_us.State.IDLE, "")
 
 
 func _cleanup() -> void:

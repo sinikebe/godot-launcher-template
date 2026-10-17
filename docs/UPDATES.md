@@ -48,7 +48,9 @@ It is monotonic, moves on every merge, and needs no bookkeeping.
    frame.
 4. With `check_on_launch` on, the menu fetches the manifest about 0.4 s after
    it opens and decides what, if anything, to offer. It skips the check when an
-   update is already downloaded or waiting on the installer.
+   update is already downloaded or waiting on the installer. A check still
+   unfinished 45 seconds after it started is given up on: the bar says so and
+   the button works again ([why](TROUBLESHOOTING.md#the-bar-says-the-update-check-did-not-finish)).
 
 Packs are stored per-version (`user://content/content-<n>.pck`) rather than
 under one name. A mounted pack stays locked for the life of the process on

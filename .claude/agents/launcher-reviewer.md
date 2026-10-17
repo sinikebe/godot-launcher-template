@@ -40,6 +40,12 @@ compared against the manifest's `sha256`. An artifact with no checksum is
 refused outright — an unauthenticated binary is worse than no update. Do not add
 a bypass, not even behind a flag.
 
+**A check always ends.** `check_for_updates()` must reach `_finish()` or
+`_fail()` on every path. A script error cannot be caught, so a timer armed at
+the start, `CHECK_DEADLINE`, fails a check that never got there (#24). Keep the
+deadline longer than `MANIFEST_TIMEOUT`, and keep its handler to this script's
+own state: it is what still runs when the check's own code is broken.
+
 **`HTTPRequest.timeout` is total wall-clock, not idle.** The internal timer is
 reset only in `request()`. A timeout sized for a small JSON fetch will kill a
 large artifact download outright. The manifest fetch and the artifact download
