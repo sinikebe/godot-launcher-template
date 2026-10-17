@@ -1,8 +1,9 @@
 # Godot Launcher Template
 
 A drop-in main menu for Godot 4.7 games that **keeps the game up to date by
-itself** — on Android it installs a new APK in place, everywhere else it pulls a
-content pack and restarts.
+itself**: it pulls a content pack and restarts, and when a release needs a new
+app build, it installs the new APK in place on Android and swaps the `.exe` on
+Windows.
 
 Skin it from one resource file. Pull launcher improvements into every game you
 own with a scheduled job.
@@ -22,24 +23,35 @@ own with a scheduled job.
 │ │ Up to date.    What's new │ Check ▸  │ │   update bar
 │ └──────────────────────────────────────┘ │
 │                  v1.2.0 · bin 2 · content 12
+│                         launcher 2.7.1
 └──────────────────────────────────────────┘
 ```
 
 ## What you get
 
-- **Self-updating builds.** Content packs reach every platform this pipeline
-  builds for — Android, Windows, Linux and macOS. A new *binary* installs itself
-  on Android, which swaps the APK in place, and on Windows, which swaps its own
-  `.exe`; Linux and macOS take content packs only, and say so plainly when a
+- **Self-updating builds.** Content packs are published for Android, Windows,
+  Linux and macOS. A new *binary* installs itself on Android, which swaps the APK
+  in place, and on Windows, which swaps its own `.exe`. The pipeline builds the
+  app itself only for Android and Windows: if you ship on Linux or macOS, export
+  those builds yourself. They take content packs, and say so plainly when a
   release needs a new binary. Every download is checked against a SHA-256 before
   it is installed.
-- **Two update tracks.** A `.pck` content update is tens of kilobytes and applies
-  on restart. Only genuine binary changes — engine version, permissions, plugins —
-  need a full APK.
+- **Two update tracks.** A content update is a `.pck` of your game's resources
+  with no engine inside, so it is far smaller than the app (the demo's is about
+  80 KB, against a 50 MB APK), and it applies on restart. Only genuine binary
+  changes — engine version, permissions, plugins, the icon, any `project.godot`
+  setting — need a new APK or `.exe`. You mark those by bumping `binary_version`
+  in `version.json`; forget, and players download a content pack that cannot
+  deliver the change. See [the two version
+  numbers](docs/UPDATES.md#the-two-version-numbers).
 - **Patch notes**, generated from your commit subjects, shown before the download
   and readable at any time, including offline.
 - **A release pipeline.** One merge to `main` builds the APK, the Windows `.exe`
   and both content packs, then publishes them with the manifest the app polls.
+  See [Releasing](#releasing).
+- **Branch builds.** A push to `dev` publishes a prerelease that installs beside
+  the real app and updates itself from that branch, so a change reaches a device
+  before any player sees it ([how](docs/UPDATES.md#trying-a-change-on-a-device-before-it-ships)).
 
 ## Try it
 
@@ -65,18 +77,29 @@ godot --path godot-launcher-template
 **[→ Getting started](docs/GETTING-STARTED.md)** walks through it end to end,
 with what you should see at each step. The short version:
 
-1. **Use this template** → create your repository → clone it.
+1. **Use this template** → create your repository → clone it. Make it public:
+   players' apps download releases with no token. A private game publishes to a
+   separate public repository instead
+   ([how](docs/UPDATES.md#publishing-from-a-private-repository)).
 2. Name it, in one command:
 
    ```bash
    bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
    ```
 
-3. Commit, push, and enable *Settings → Actions → General → Allow GitHub
+   It sets the name, the Android package id, and `update_repo` to your
+   repository. A private game passes its public releases repository as a third
+   argument, `owner/name`.
+3. Replace the rest of the demo. In `launcher_config.tres`, set `play_scene` to
+   your first scene, change `tagline` (it still says *template demo*), and
+   clear `extra_buttons` unless you will wire up its Settings button. Replace
+   `icon.svg` too: it is your app's icon, and changing it later needs a new app
+   build.
+4. Commit, push, and enable *Settings → Actions → General → Allow GitHub
    Actions to create and approve pull requests*.
 
-That is it. The first push builds an APK, a Windows `.exe` and the update
-manifest, and publishes them as a release.
+The first push builds an APK, a Windows `.exe` and the update manifest, and
+publishes them as a release.
 
 Before other people install it, [set up Android
 signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it) —
@@ -170,7 +193,9 @@ copies by hand before your first release:
   `owner/name`, or to the public releases repository a private game
   [publishes to](docs/UPDATES.md#publishing-from-a-private-repository). Left
   as the template's, your game checks the template's releases for updates,
-  and can be offered the demo's content pack as one.
+  and can be offered the demo's content pack as one. Once the first launcher
+  sync has run, it refuses instead, with `update_repo still points at the
+  launcher template`.
   Set `play_scene` to the scene that used to be your main scene, or Play has
   nothing to start. Set `game_title` and `tagline`, and clear `extra_buttons`
   unless you want the demo's Settings button.
@@ -182,22 +207,52 @@ copies by hand before your first release:
   `application/file_description` to your game's name. Two apps with the same
   package id cannot both be installed on one device.
 
-Then commit, push, and enable *Settings → Actions → General → Allow GitHub
-Actions to create and approve pull requests*.
+There is no editor plugin to enable: the launcher is two autoloads and a
+scene.
 
-Releases come from pushes to the branches listed at the top of
-`.github/workflows/release.yml`. A push to your default branch publishes a
-release. A push to any other branch listed there (`dev`, as shipped) publishes
-a separate [prerelease build](docs/UPDATES.md#trying-a-change-on-a-device-before-it-ships).
-Add your default branch to that list if it is not `main`, and take `dev` out
-if your game uses that branch for something else. After either edit, the daily
-sync reports `release.yml` as changed upstream on every run: the difference it
-sees is your own. Copy the template's version across only when it really has
-changed, then put your edit back.
+Then commit, push, and enable *Settings → Actions → General → Allow GitHub
+Actions to create and approve pull requests*. If your default branch is not
+`main`, see [Releasing](#releasing) first.
 
 [Set up Android
 signing](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
 before other people install it.
+
+## Releasing
+
+Every push to your default branch publishes a release. Pull requests build the
+same way through `ci.yml` and publish nothing, so open one: a push straight to
+`main` skips those checks.
+
+- **Version numbers.** `content_version` is the commit count; you never set it.
+  `binary_version` and `version_name` live in `version.json`. `version_name`
+  goes into the release tag, so it takes ASCII letters, digits, `.`, `_` and
+  `-` only.
+- **Patch notes** are your commit subjects since the last release, minus merges
+  and subjects starting `chore`, `ci:`, `bump `, `wip` or `revert `, at most 20
+  lines. Write subjects on `main` for players; see [Patch
+  notes](docs/UPDATES.md#patch-notes).
+- **Branches.** Releases come from pushes to the branches listed at the top of
+  `.github/workflows/release.yml`. A push to any branch there other than the
+  default one (`dev`, as shipped) publishes a separate [prerelease
+  build](docs/UPDATES.md#trying-a-change-on-a-device-before-it-ships). Add your
+  default branch to that list if it is not `main`, and take `dev` out if your
+  game uses that branch for something else. After either edit, the daily sync
+  reports `release.yml` as changed upstream on every run: the difference it sees
+  is your own. Copy the template's version across only when it really has
+  changed, then put your edit back.
+
+### Repository settings
+
+These are set under *Settings → Secrets and variables → Actions*. None is a
+workflow edit, so none shows up as drift on a launcher sync.
+
+| Name | Kind | Does |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` | secrets | Your signing key ([set up](docs/GETTING-STARTED.md#android-set-up-signing-before-you-share-it)). Unset, CI uses a cached debug key |
+| `RELEASE_REPO` | variable | Publish to this public `owner/name` instead ([how](docs/UPDATES.md#publishing-from-a-private-repository)) |
+| `RELEASE_TOKEN` | secret | A fine-grained token that can write to `RELEASE_REPO` |
+| `CI_RUNNER`, `RELEASE_RUNNER` | variables | Runner label for pull-request checks and for releases; private repositories only ([own machine](docs/UPDATES.md#running-the-workflows-on-your-own-machine)) |
 
 ## Making it yours
 
@@ -211,27 +266,32 @@ override either while the app runs. **Nothing in `addons/launcher/` should
 ever need editing** — that directory is replaced wholesale on every sync, so
 local edits there are silently reverted.
 
+Config changes ship in content updates: the launcher reads its config after
+mounting the pack. A field that a newer launcher adds is unknown to app builds
+made before it, which use its default until their next app build.
+
 ### Identity
 
 | Field | |
 |---|---|
 | `game_title` | The big text |
-| `tagline` | Line underneath. `{build}` and `{version}` are filled in at runtime; empty hides it |
+| `tagline` | Line underneath. `{build}` becomes the content version and `{version}` the `version_name`, at runtime; empty hides it |
 
 ### Background
 
 | Field | |
 |---|---|
 | `background_texture` | Your image. Wins over the shader when set |
-| `background_shader` | Used when there is no texture. Ships with an organic default |
+| `background_shader` | Used when there is no texture. The template's config uses `addons/launcher/shaders/organic_background.gdshader`; a new config has none |
 | `background_color` | Flat fill behind both, and the whole background if neither is set |
 | `background_stretch` | Scale / Tile / Keep Centered / **Cover** / Contain |
 | `background_dim` | 0–1 black veil. Raise it when a busy photo fights the text |
 
 ### Placement
 
-The title block and the menu are positioned independently, each by a
-horizontal and a vertical alignment, so either can go in any of nine spots.
+The *Layout* group in the Inspector. The title block and the menu are
+positioned independently, each by a horizontal and a vertical alignment, so
+either can go in any of nine spots.
 
 | Field | |
 |---|---|
@@ -246,7 +306,8 @@ horizontal and a vertical alignment, so either can go in any of nine spots.
 
 `show_play` / `play_text`, `show_quit` / `quit_text`, and `extra_buttons` — a
 list of labels inserted between them. Pressing one emits
-`custom_button_pressed(label)`, so a game adds Settings or Credits without
+`custom_button_pressed(label)`, with the label as written in `extra_buttons`
+rather than its translation, so a game adds Settings or Credits without
 touching the launcher. Connect it from `_launcher_opening()` in
 `res://launcher_hooks.gd` — see
 [Your own code on the launcher's screen](#your-own-code-on-the-launchers-screen):
@@ -260,7 +321,9 @@ func _launcher_opening(launcher: Control) -> void:
 
 `play_scene` is what Play loads. Leave it empty and Play says so instead of
 failing silently — unless you connect `play_requested` the same way, which with
-`play_scene` empty takes the Play action over entirely.
+`play_scene` empty takes the Play action over entirely. `play_requested` is
+emitted on every press of Play, before the scene change when `play_scene` is
+set.
 
 To come back to the launcher from your game, for a Leave or Main menu button,
 change scene to it:
@@ -276,6 +339,29 @@ template will not move it. If your main scene is a scene of your own around
 the launcher, change to that instead. Your `_launcher_opening()` runs again
 each time the launcher opens.
 
+### Updates
+
+| Field | |
+|---|---|
+| `update_repo` | `owner/name` whose releases the app checks: your game's repository, or the public one a private game [publishes to](docs/UPDATES.md#publishing-from-a-private-repository). `ci/new_game.sh` sets it. Empty turns the updater off and hides the bar |
+| `check_on_launch` | Check each time the launcher opens, including each time your game returns to it |
+| `show_update_bar` | The status line and its buttons along the bottom. Off hides them, not the version stamp, and a check on launch still runs, so turn `check_on_launch` off with it |
+
+What a player sees, with `check_on_launch` on: the bar checks each time the
+launcher opens. A content update reads *Content update available*; **Download
+update** shows its notes, downloads, verifies and offers **Restart**. A
+release that needs a new app build reads **Update app**. On Android the APK
+goes to the system installer; the first time, Android sends the player to allow
+installs from your game, and the button becomes **Install**. On Windows the
+game downloads the new `.exe`, closes, and reopens on it, so the `.exe` has to
+sit in a folder the player can write to. On Linux and macOS the button becomes
+**Open releases page**. **What's new** shows every release's notes, offline
+too. Errors show in the bar, and the button checks again.
+
+A web or iOS build has nothing to fetch, and says `No content pack published
+for <platform>`: turn both fields off in its config. [How updates
+work](docs/UPDATES.md) has the detail.
+
 ### Back on Android
 
 By default, Godot quits the app whenever Back is pressed. The launcher changes
@@ -285,10 +371,10 @@ that in two places only:
   otherwise quits, as `application/config/quit_on_go_back` in your
   `project.godot` says (on unless you turned it off). If your
   `_launcher_opening()` adds a panel of its own, or your main scene is a scene
-  of yours around the launcher, turn the quit off --
+  of yours around the launcher, turn the quit off —
   `launcher.get_tree().quit_on_go_back = false` from `_launcher_opening()`, or
   `get_tree().quit_on_go_back = false` from that scene's `_ready()`, which runs
-  after the launcher's -- and handle Back by connecting the launcher's
+  after the launcher's — and handle Back by connecting the launcher's
   `back_requested` signal. It is emitted only for a Back that none of the
   launcher's dialogs took, so the Back that closes one never reaches your code
   as well. Nothing then quits on Back unless your code does. Turn it off once,
@@ -348,24 +434,32 @@ with `DisplayServer.has_feature(DisplayServer.FEATURE_ORIENTATION)`.
 
 ### Version stamp
 
-The corner of the launcher shows two lines: the game's version on top, and the
-launcher's underneath. The semver comes from the template, the short hash is the
-template commit the game synced:
+The corner of the launcher shows two lines. On top, the game:
+`v<version_name> · bin <binary_version> · content <content_version> · <commit>`
+([the two version numbers](docs/UPDATES.md#the-two-version-numbers)). A
+[branch build](docs/UPDATES.md#trying-a-change-on-a-device-before-it-ships)
+starts it with `branch <name>`. Underneath, the launcher: its semver, from the
+template, and the template commit the game synced.
 
 ```
 v0.2.0  ·  bin 2  ·  content 13  ·  6721df5d
-launcher 2.1.0  ·  b0f419d7
+launcher 2.7.1  ·  b0f419d7
 ```
 
+Only `content` moves with a content update. The version name, the commit and
+the whole launcher line belong to the installed app build, so after a content
+update that brings a newer launcher, the second line still names the old one
+until the next app build.
+
 Inside the template and in a hand-vendored copy there is no synced commit, so
-the second line is just `launcher 2.1.0`. It is the first thing worth asking for
+the second line is just `launcher 2.7.1`. It is the first thing worth asking for
 in a launcher bug report.
 
 The sync writes the hash into `addons/launcher/launcher_version.gd` from its
 record, `addons/launcher/.launcher-sync.json`, on every run. A synced game
-whose second line has no hash is missing that stamp. Once its `ci/` includes
-this, the next sync run opens a pull request that adds it, even when there is
-nothing new to sync.
+whose app build shows no hash on the second line was built without that
+stamp. Once the game's `ci/` includes this, the next sync run opens a pull
+request that adds it, even when there is nothing new to sync.
 
 `VERSION` is hand-maintained, and `ci/check_launcher_version.sh` fails a pull
 request that changes `addons/launcher/` without moving it — label the pull
@@ -377,6 +471,11 @@ request `no-launcher-bump` for a change that genuinely does not warrant one.
 the default dark-green one. One thing it cannot style is a panel around the
 update dialog's text: the dialog's own `PanelContainer` panel is its frame, so
 the text area ignores the theme's `ScrollContainer` panel.
+
+Your theme sets fonts, buttons and panels, but not the colour or size of the
+title, the tagline, the status line, the version stamp or the dialog's text:
+the launcher's scene sets those itself. Pick a background they read against,
+or raise `background_dim`.
 
 ### Your own code on the launcher's screen
 
@@ -433,6 +532,28 @@ Things to watch:
   replace the file but never remove it. Delete it from the project and devices
   carry on running the copy their app build shipped. To retire it, ship one
   that does nothing.
+- **It lives as long as the launcher.** The script is created each time the
+  launcher opens and kept until it closes. If it `extends Node`, it is added as
+  the launcher's child, so `_ready()`, `_process()` and input callbacks work,
+  and whatever it adds is freed with the launcher. Its `_init()` must take no
+  arguments, or the file is skipped with a warning.
+
+### What your code can use
+
+- **The launcher**, the `launcher` your hook receives: the signals
+  `custom_button_pressed(label)`, `play_requested()` and `back_requested()`,
+  and `register_translations(paths)`.
+- **`UpdateService`**, an autoload. It ships in content packs, so it is always
+  the current one: `state` and `state_changed`, `check_completed`,
+  `check_for_updates()`, `apply_pending_update()`, `status_text()` and
+  `history_text()`, for a game that drives updates from its own screens.
+- **`BuildInfo`**, an autoload that stays at the installed app build's
+  version: `version_name`, `binary_version`, `content_version`,
+  `platform_key()`, `display_version()` and `config`. Test a newer member by
+  name before using it, as above.
+
+A change that would stop any of these working moves the launcher's major
+version (`VERSION` in `addons/launcher/launcher_version.gd`).
 
 ### Language
 
@@ -454,6 +575,8 @@ ships a template of its strings at
 3. **Register them from `_launcher_opening()` in `res://launcher_hooks.gd`**,
    with `launcher.register_translations(["res://locale/"])` — see
    [Your own code on the launcher's screen](#your-own-code-on-the-launchers-screen).
+   It reads the `.po`, `.mo` and imported `.translation` files directly inside
+   each folder you pass, not those in subfolders.
    Don't use Project Settings → Localization. Godot reads that list from the
    installed app at startup, before the launcher mounts a content pack, so a
    catalog listed there only changes with a new app build. A corrected string,
@@ -518,8 +641,8 @@ Review the diff, then merge it yourself.
 The synced revision is recorded in `addons/launcher/.launcher-sync.json`.
 
 A token scoped to `contents` is not allowed to write `.github/workflows/`, so the
-starter workflows are **not** synced. When they change upstream -- or when the
-template adds one you do not have -- the sync says so in the run summary of every
+starter workflows are **not** synced. When they change upstream — or when the
+template adds one you do not have — the sync says so in the run summary of every
 sync run, and in the pull request body when one is opened. You copy them across
 by hand. The sync cannot tell an edit of your own from a change upstream. A
 branch you added to `release.yml` therefore gets that file reported on every
@@ -527,23 +650,32 @@ run, and copying it across drops your branch, so put the edit back after
 copying.
 
 > A pull request opened with `GITHUB_TOKEN` does not trigger other workflows, so
-> the sync job runs the import-and-boot check itself before opening the PR. If
-> you want the game's full CI on it as well, give the workflow a PAT instead.
+> the sync job runs the import-and-boot check itself before opening the PR. To
+> run your full CI on it as well, close the pull request and reopen it. A
+> personal access token also works, but only by editing `sync-launcher.yml`,
+> which the sync then reports as changed upstream on every run.
 
 ## Layout
 
 | Path | |
 |---|---|
 | `addons/launcher/` | **The launcher.** Synced into games; never edit downstream |
+| `addons/launcher/launcher.tscn` | The launcher scene, and every game's main scene; its path never changes |
 | `addons/launcher/launcher_config.gd` | Every knob, documented inline |
-| `addons/launcher/launcher_version.gd` | The launcher's own version; CI fails a launcher change that does not bump `VERSION` |
+| `addons/launcher/launcher_version.gd` | The launcher's own version; CI fails a launcher change that does not bump `VERSION`. In a game, that check turns itself off once `.launcher-sync.json` exists |
+| `addons/launcher/launcher.pot` | The launcher's strings, to translate |
 | `ci/` | Build and release scripts. Also synced |
 | `template/` | The one starter file a game copies **once**: `export_presets.cfg` |
 | `.github/workflows/` | The template's own CI — and exactly what a game gets |
 | `docs/GETTING-STARTED.md` | **Start here.** Zero to a self-updating release |
 | `docs/TROUBLESHOOTING.md` | Symptoms, and what each one means |
 | `docs/UPDATES.md` | How updating actually works, in depth |
-| `build_version.gd`, `launcher_config.tres`, `project.godot` | The demo harness |
+| `version.json` | Game name, `version_name` and `binary_version` |
+| `launcher_config.tres` | The demo's config; your game's after setup |
+| `build_version.gd` | The build stamp, at the path the launcher reads it from. CI overwrites it before each export; never edit it |
+| `project.godot`, `export_presets.cfg`, `icon.svg` | The demo project; `ci/new_game.sh` swaps in `template/`'s presets |
+| `.gitattributes` | Keeps text files on LF line endings, so scripts written on Windows still run in CI |
+| `.claude/`, `CLAUDE.md` | Tooling for working on this repository; a game can delete them |
 | `LICENSE` | MIT. Copies also live in `addons/launcher/` and `ci/`, so the terms travel with the synced code |
 
 ## Does this need anything from me?
@@ -551,7 +683,8 @@ copying.
 No. The template is public, and a game syncs from it with an anonymous clone —
 no token, no account, no permission. Fork it if you would rather not depend on
 this repo moving under you, and point `LAUNCHER_TEMPLATE_REPO` in the sync
-workflow at your fork.
+workflow at your fork. In the fork itself, change the `if:` line beside it too,
+or the fork opens sync pull requests against itself.
 
 Nothing is shared between games that use it: each one has its own repository,
 its own releases, its own Android package id and its own signing key.
@@ -562,12 +695,13 @@ its own releases, its own Android package id and its own signing key.
 |---|---|
 | [Getting started](docs/GETTING-STARTED.md) | The walkthrough, with what you should see at each step |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | "App not installed", no pull request, updates not detected… |
-| [How updates work](docs/UPDATES.md) | The two version numbers, the manifest, signing, per-platform behaviour, trying a change on a device before it ships |
+| [How updates work](docs/UPDATES.md) | The two version numbers, the manifest, signing, per-platform behaviour, trying a change on a device before it ships, publishing from a private repository, running the workflows on your own machine |
 
 ## Requirements
 
 Godot **4.7**, no C#, no addons. Android builds need the SDK in CI (the supplied
-workflow sets it up) and a signing keystore for real self-update.
+workflow sets it up) and a signing keystore for real self-update. Running
+`ci/new_game.sh` needs bash, git and Python 3 (on Windows, Git Bash and Python).
 
 ## License
 
