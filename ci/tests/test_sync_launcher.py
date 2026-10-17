@@ -23,10 +23,9 @@ import unittest
 
 CI_DIR = pathlib.Path(__file__).resolve().parent.parent
 LAUNCHER_VERSION = (CI_DIR.parent / "addons" / "launcher" / "launcher_version.gd").read_text(encoding="utf-8")
-TEMPLATE = "me/template"
-
-
 class SyncLauncher(unittest.TestCase):
+    TEMPLATE = "me/template"
+
     def setUp(self):
         if shutil.which("git") is None or shutil.which("bash") is None or shutil.which("python3") is None:
             self.skipTest("needs git, bash and python3")
@@ -41,7 +40,7 @@ class SyncLauncher(unittest.TestCase):
         self.temp.mkdir()
         self.gitconfig.write_text(
             '[url "file://%s"]\n\tinsteadOf = https://github.com/%s.git\n'
-            "[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" % (self.bare, TEMPLATE),
+            "[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" % (self.bare, self.TEMPLATE),
             encoding="utf-8")
 
         # The template: a launcher, a version file holding the template's own defaults,
@@ -96,7 +95,7 @@ class SyncLauncher(unittest.TestCase):
         copy = self.temp / "sync_launcher.sh"
         shutil.copy(self.game / "ci" / "sync_launcher.sh", copy)
         env = self.env()
-        env.update({"LAUNCHER_TEMPLATE_REPO": TEMPLATE, "LAUNCHER_TEMPLATE_REF": "main",
+        env.update({"LAUNCHER_TEMPLATE_REPO": self.TEMPLATE, "LAUNCHER_TEMPLATE_REF": "main",
                     "RUNNER_TEMP": str(self.temp), "GITHUB_OUTPUT": str(self.temp / "output")})
         result = subprocess.run(["bash", str(copy)], cwd=self.game, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -127,7 +126,7 @@ class SyncLauncher(unittest.TestCase):
         self.assertIn("Synced launcher to", result.stdout)
         record = self.record()
         self.assertEqual(self.stamp(), {"COMMIT": record["commit"][:8], "SYNCED_AT": record["synced_at"],
-                                        "SOURCE": TEMPLATE})
+                                        "SOURCE": self.TEMPLATE})
 
     def test_an_unstamped_launcher_already_on_the_templates_commit_is_stamped_on_the_next_run(self):
         # The sync that delivered stamping ran the copy from before it, and every run
@@ -137,7 +136,7 @@ class SyncLauncher(unittest.TestCase):
         self.unstamp()
         self.commit_game("Merge an unstamped sync")
         result = self.sync()
-        self.assertIn("Already on", result.stdout)
+        self.assertIn("only the launcher's version stamp was missing", result.stdout)
         self.assertIn("Stamped addons/launcher/launcher_version.gd", result.stdout)
         self.assertEqual(self.stamp()["COMMIT"], self.record()["commit"][:8])
         self.assertEqual(self.git(self.game, "status", "--porcelain", "--untracked-files=all").count("\n"), 0)
@@ -178,6 +177,34 @@ class SyncLauncher(unittest.TestCase):
                 result = self.sync()
                 self.assertIn("::warning::", result.stdout)
                 self.assertEqual(self.stamp(), {"COMMIT": "local", "SYNCED_AT": "", "SOURCE": ""})
+
+    def test_a_stamp_for_the_right_commit_is_left_alone(self):
+        # Older copies of the script read the clock twice, so SYNCED_AT could be a
+        # second off the record's. Rewriting it would open a pull request, and on
+        # merge publish a release, for nothing.
+        self.sync()
+        path = self.game / "addons/launcher/launcher_version.gd"
+        path.write_text(re.sub(r'^const SYNCED_AT: String = ".*"$', 'const SYNCED_AT: String = "2000-01-01T00:00:00Z"',
+                               path.read_text(encoding="utf-8"), flags=re.M), encoding="utf-8")
+        self.commit_game("A stamp a little off the record")
+        result = self.sync()
+        self.assertIn("nothing to do", result.stdout)
+        self.assertEqual(self.git(self.game, "status", "--porcelain"), "")
+
+    def test_a_constant_written_another_way_is_reported(self):
+        self.sync()
+        self.unstamp()
+        path = self.game / "addons/launcher/launcher_version.gd"
+        path.write_text(path.read_text(encoding="utf-8").replace('const COMMIT: String = "local"', 'const COMMIT := "local"'),
+                        encoding="utf-8")
+        self.commit_game("Reformat a constant")
+        result = self.sync()
+        self.assertIn("::warning::addons/launcher/launcher_version.gd has no line 'const COMMIT: String", result.stdout)
+
+
+class SyncLauncherOwnerWithUnderscore(SyncLauncher):
+    """Managed-user handles hold "_"; the stamp must not refuse them."""
+    TEMPLATE = "jdoe_acme/template"
 
 
 if __name__ == "__main__":

@@ -227,19 +227,28 @@ except (OSError, ValueError, AttributeError):
     sys.exit(0)
 # Each value lands inside a GDScript string literal, so only the shapes this
 # script itself writes are accepted: nothing that could close the literal.
+# An owner may hold "_" (managed-user handles do).
 if not (re.fullmatch(r"[0-9a-f]{7,40}", commit)
         and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z", synced_at)
-        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+", source)):
-    print("::warning::%s does not hold a usable commit, date and source; the launcher's version stamp was left as it is." % sys.argv[1])
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9._-]+", source)):
+    print("::warning::%s does not hold a usable commit, date and source, so the launcher's version stamp was not written." % sys.argv[1])
     sys.exit(0)
 
 path = pathlib.Path("addons/launcher/launcher_version.gd")
 before = path.read_text(encoding="utf-8")
+# Already stamped for this commit: leave it. Older copies of this script took
+# SYNCED_AT from a second clock reading, which can be a second off the record's,
+# and rewriting it would open a pull request -- and on merge, a release -- for
+# nothing.
+if re.search(r'^const COMMIT: String = "%s"$' % re.escape(commit[:8]), before, flags=re.M):
+    sys.exit(0)
 text = before
 # VERSION is the template's to declare and travels with the copied file.
 for const, value in (("COMMIT", commit[:8]), ("SYNCED_AT", synced_at), ("SOURCE", source)):
-    text = re.sub(rf'^const {const}: String = ".*"$',
-                  f'const {const}: String = "{value}"', text, count=1, flags=re.M)
+    text, found = re.subn(rf'^const {const}: String = ".*"$',
+                          f'const {const}: String = "{value}"', text, count=1, flags=re.M)
+    if not found:
+        print("::warning::addons/launcher/launcher_version.gd has no line 'const %s: String = \"...\"', so it could not be stamped." % const)
 if text != before:
     path.write_text(text, encoding="utf-8")
     print("Stamped addons/launcher/launcher_version.gd with %s from the sync record." % commit[:8])
@@ -249,9 +258,16 @@ PYEOF
 drift_report
 
 if [[ "$PREVIOUS_SHA" == "$SHA" ]]; then
-	# Nothing new, but the stamp may still be missing or stale: see above.
-	stamp_from_record
-	echo "Already on ${SHORT_SHA}; nothing to do."
+	# Nothing new, but the stamp may still be missing: see above.
+	STAMPED="$(stamp_from_record)"
+	if [[ -n "$STAMPED" ]]; then
+		printf '%s\n' "$STAMPED"
+	fi
+	if [[ "$STAMPED" == *"Stamped addons/launcher/launcher_version.gd"* ]]; then
+		echo "Already on ${SHORT_SHA}; only the launcher's version stamp was missing."
+	else
+		echo "Already on ${SHORT_SHA}; nothing to do."
+	fi
 	emit_outputs
 	exit 0
 fi
