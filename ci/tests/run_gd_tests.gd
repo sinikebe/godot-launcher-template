@@ -723,6 +723,13 @@ func _test_too_new_manifest_is_not_cached() -> void:
 ## its deadline has to end it. Driven by hand: the real deadline is a timer.
 func _test_check_deadline() -> void:
 	check(_us.CHECK_DEADLINE > _us.MANIFEST_TIMEOUT, "the check deadline outlasts the manifest request's own timeout")
+	var timer: SceneTreeTimer = _us._arm_check_deadline(-1)
+	check(timer != null and absf(timer.time_left - _us.CHECK_DEADLINE) < 0.01, "the deadline is a timer of CHECK_DEADLINE")
+	var targets: Array = []
+	if timer != null:
+		for connection: Dictionary in timer.timeout.get_connections():
+			targets.append(str((connection.callable as Callable).get_method()))
+	eq(targets, ["_on_check_overdue"], "the deadline ends the check when it fires")
 
 	# What a check that died after starting leaves behind.
 	_us._check_serial += 1
@@ -752,13 +759,48 @@ func _test_check_deadline() -> void:
 	check(_us._busy, "an older check's deadline leaves the newer check busy")
 	_us._busy = false
 
+	# A check that died before reaching CHECKING left the state as it was, and the
+	# player may since have started a download from it.
+	_us._check_serial += 1
+	serial = _us._check_serial
+	_us._busy = true
+	_us._set_state(_us.State.DOWNLOADING)
+	_us._on_check_overdue(serial)
+	eq(_us.state, _us.State.DOWNLOADING, "the deadline leaves a download alone")
+	check(_us._busy, "the deadline does not release a download")
+
+	# The answer to a check its deadline gave up on arrives during that download.
+	var late := {"ok": true, "code": 200, "body": '{"content_version": 999}'.to_utf8_buffer(), "error": ""}
+	_us._check_serial += 1
+	serial = _us._check_serial
+	_us._set_state(_us.State.CHECKING)
+	_us._on_check_overdue(serial)
+	_us._busy = true
+	_us._set_state(_us.State.DOWNLOADING)
+	_us._settle_check(serial, late)
+	eq(_us.state, _us.State.DOWNLOADING, "a late answer to a check given up on is dropped")
+	check(_us._busy, "a late answer does not release the download")
+	check(not _us.manifest.has("content_version"), "a late answer does not replace the manifest")
+	_us._busy = false
+
+	# The answer to the current check is used.
+	_us._check_serial += 1
+	serial = _us._check_serial
+	_us._busy = true
+	_us._set_state(_us.State.CHECKING)
+	_us._settle_check(serial, {"ok": false, "code": 404, "body": PackedByteArray(), "error": ""})
+	eq(_us.state, _us.State.FAILED, "the current check's answer settles it")
+	check(not _us._busy, "the current check's answer releases it")
+
 	# check_for_updates() numbers each check and marks it settled when it ends.
 	var repo: String = _bi.config.update_repo
 	_bi.config.update_repo = ""
 	var before: int = _us._check_serial
 	_us.check_for_updates()
 	_bi.config.update_repo = repo
-	eq(_us._check_serial, before + 1, "each check gets its own deadline")
+	eq(_us._check_serial, before + 1, "each check gets its own serial")
+	check(_us._check_deadline != null and _us._check_deadline.time_left > _us.CHECK_DEADLINE - 1.0,
+		"each check starts its own deadline")
 	eq(_us._settled_serial, before + 1, "a check that ends early is settled, so its deadline does nothing")
 	eq(_us.state, _us.State.UNAVAILABLE, "a check with no update_repo ends at once")
 	_us._finish(_us.State.IDLE, "")

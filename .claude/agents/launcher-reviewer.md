@@ -41,10 +41,13 @@ refused outright — an unauthenticated binary is worse than no update. Do not a
 a bypass, not even behind a flag.
 
 **A check always ends.** `check_for_updates()` must reach `_finish()` or
-`_fail()` on every path. A script error cannot be caught, so a timer armed at
-the start, `CHECK_DEADLINE`, fails a check that never got there (#24). Keep the
-deadline longer than `MANIFEST_TIMEOUT`, and keep its handler to this script's
-own state: it is what still runs when the check's own code is broken.
+`_fail()` on every path, save one: an answer that arrives after the check's
+deadline gave up on it is dropped by `_settle_check()`, because a newer check or
+a download may own the state by then. A script error cannot be caught, so a
+timer armed at the start, `CHECK_DEADLINE`, fails a check left on `CHECKING`
+(#24); it leaves any other state alone. Keep the deadline longer than
+`MANIFEST_TIMEOUT`, and keep its handler to this script's own state: it is what
+still runs when the check's own code is broken.
 
 **`HTTPRequest.timeout` is total wall-clock, not idle.** The internal timer is
 reset only in `request()`. A timeout sized for a small JSON fetch will kill a
