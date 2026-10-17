@@ -185,7 +185,7 @@ elif [[ -e LICENSE || -L LICENSE ]]; then
 	LICENSE_NEXT="
   0. Replace LICENSE. The root one is $(licence_line) -- if that is the
      template's, it covers the launcher and not your game. Put your own terms
-     there, or set up again with --delete-licence to drop it. The launcher
+     there, or delete it yourself with: rm LICENSE. The launcher
      keeps its own MIT licence in addons/launcher/LICENSE and ci/LICENSE;
      leave those alone."
 else

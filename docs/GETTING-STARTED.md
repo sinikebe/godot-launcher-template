@@ -4,7 +4,9 @@ From nothing to a game people can install, that updates itself, in about
 fifteen minutes. No prior GitHub Actions knowledge needed.
 
 **What you need:** [Godot 4.7](https://godotengine.org/download), a GitHub
-account, and [`gh`](https://cli.github.com) or git on the command line.
+account, git, bash and a `python3` command — on Windows, Git Bash and a Python
+that answers to `python3` there (the python.org installer may provide only
+`python` and `py`) — and [`gh`](https://cli.github.com) for the signing step.
 
 **Want to see it first?** Install the
 [demo build](https://github.com/sinikebe/godot-launcher-template/releases/latest)
@@ -43,8 +45,19 @@ bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
 - **com.yourname.deepcavern** — your Android package id. It must be unique
   across every app on a phone. Two apps sharing one collide, and then neither
   can update the other. Use your own name or domain; never leave the example.
+- A private game passes its public releases repository as a third argument —
+  `bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern you/deep-cavern-releases`
+  — and sets up `RELEASE_REPO` and `RELEASE_TOKEN`
+  ([how](UPDATES.md#publishing-from-a-private-repository)) before pushing.
+  Otherwise its first release is published to the private repository, where no
+  player can read it.
+- Put `--delete-licence` before the name if you want the template's root
+  `LICENSE` deleted; it only works on this first run.
 
-> **You should see** a short list of changed files ending in `template/ removed`.
+> **You should see** `Done. Changed:` and a short list of files ending with
+> `template/` removed (and `LICENSE` deleted, if you passed `--delete-licence`),
+> then a **Next:** list whose step 0 is about the root `LICENSE` — see [Where
+> things live](#where-things-live).
 
 It does not touch the rest of the demo. In `launcher_config.tres`, set
 `play_scene` to your first scene, change `tagline` (it still says *template
@@ -87,7 +100,9 @@ Download the `.exe` and run it, or put the `.apk` on an Android phone.
 > version and which launcher build you are on.
 
 Android will ask to allow installs from whichever app opened the APK. That is
-normal for anything outside the Play Store.
+normal for anything outside the Play Store. On Windows, the `.exe` is not
+code-signed, so SmartScreen may warn: *More info → Run anyway*. Keep it in a
+folder you can write to, not Program Files: it replaces itself when it updates.
 
 ## 6. Watch it update itself
 
@@ -99,12 +114,13 @@ git commit -am "Rename the title"
 git push
 ```
 
-Wait for the build, then open the copy you installed and press **Check for
-updates**.
+Wait for the build, then open the copy you installed. It checks by itself as
+it opens; if it is still open from step 5, press **Check for updates**.
 
-> **You should see** `Content update available`, then patch notes taken from
-> your commit message, then a download and a **Restart** prompt. After the
-> restart, your change is there — no reinstall.
+> **You should see** `Content update available (v0.1.0).` and a **Download
+> update** button. Press it: the patch notes, taken from your commit message,
+> come first, then **Download**, then an *Update ready* prompt with **Restart
+> now**. After the restart, your change is there — no reinstall.
 
 That was a *content* update: far smaller than the app, since it carries no
 engine. Read
@@ -135,7 +151,7 @@ keytool -genkeypair -v \
 Add it to your repository as three secrets:
 
 ```bash
-gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 release.keystore)
+base64 < release.keystore | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64
 gh secret set ANDROID_KEYSTORE_PASSWORD   # the password you just chose
 gh secret set ANDROID_KEY_ALIAS           # release
 ```
@@ -143,7 +159,9 @@ gh secret set ANDROID_KEY_ALIAS           # release
 > **Back up `release.keystore` and its password somewhere safe**, outside the
 > repository. Lose them and you can never update anyone's installed copy again.
 
-The next build picks them up automatically.
+The next build picks them up automatically. Your copy from step 5 was signed
+with the debug key, so uninstall it and install the next build fresh: Android
+will refuse to update it in place.
 
 ---
 
@@ -172,7 +190,7 @@ quietly reverts it. Everything you legitimately need is in the config,
 Each of them carries a copy of the launcher's MIT `LICENSE`, which is how the
 terms reach you at all — the sync only ever copies those two directories. Leave
 those copies where they are. Your own game's licence goes in the repository
-root, replacing the template's — `ci/new_game.sh` prompts you and leaves the
+root, replacing the template's — `ci/new_game.sh` tells you so and leaves the
 file for you to overwrite, or deletes it if you pass `--delete-licence` during
 setup. Afterwards it will not delete it for you — `rm LICENSE` yourself.
 
@@ -205,3 +223,9 @@ project still loads, and **opens a pull request**. It never merges — reviewing
 and merging is your call, because merging publishes a release to your players.
 
 To check right now: **Actions → Sync launcher → Run workflow**.
+
+The sync cannot update `.github/workflows/`. When the template changes one, the
+run summary says which, and so does the pull request when there is one; copy
+them across by hand — see
+[The sync says my workflows have
+drifted](TROUBLESHOOTING.md#the-sync-says-my-workflows-have-drifted).

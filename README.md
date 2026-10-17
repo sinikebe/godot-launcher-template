@@ -366,9 +366,10 @@ new** shows the notes of the last 20 releases, offline too. Errors show in the
 bar, and the button checks again.
 
 A web or iOS build has nothing to fetch, and says `No content pack published
-for <platform>`. There is one config for every platform, so turn both fields
-off for it from `_launcher_opening()`, which runs before the launcher reads
-them:
+for <platform>.` whenever a newer release exists, or, after a `binary_version`
+bump, that no app build is published for it. There is one config for every
+platform, so turn both fields off for it from `_launcher_opening()`, which runs
+before the launcher reads them:
 
 ```gdscript
 if OS.has_feature("web"):
@@ -468,7 +469,8 @@ update that brings a newer launcher, the second line still names the old one
 until the next app build.
 
 Inside the template and in a hand-vendored copy there is no synced commit, so
-the second line is just `launcher 2.7.1`. It is the first thing worth asking for
+the second line is only `launcher` and its version, such as `launcher 2.7.2`.
+It is the first thing worth asking for
 in a launcher bug report.
 
 The sync writes the hash into `addons/launcher/launcher_version.gd` from its

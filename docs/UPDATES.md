@@ -46,7 +46,9 @@ It is monotonic, moves on every merge, and needs no bookkeeping.
    `res://launcher_hooks.gd`, when there is one. That file ships in the pack
    too, so catalogs and a language it registers are the pack's, from the first
    frame.
-4. The menu fetches the manifest and decides what, if anything, to offer.
+4. With `check_on_launch` on, the menu fetches the manifest about 0.4 s after
+   it opens and decides what, if anything, to offer. It skips the check when an
+   update is already downloaded or waiting on the installer.
 
 Packs are stored per-version (`user://content/content-<n>.pck`) rather than
 under one name. A mounted pack stays locked for the life of the process on
@@ -70,6 +72,9 @@ Published as a release asset and fetched from a single fixed URL:
 ```
 https://github.com/<owner>/<game>/releases/latest/download/manifest.json
 ```
+
+A [branch build](#trying-a-change-on-a-device-before-it-ships) polls
+`…/releases/download/branch-<name>/manifest.json` instead.
 
 `<owner>/<game>` is `update_repo` in `launcher_config.tres`: the game's own
 repository, or the public releases repository a private game publishes to (see
@@ -131,8 +136,15 @@ download starts — so nobody is asked to spend 50 MB on an unexplained update.
 They are generated, not hand-written. [`ci/collect_changes.sh`](../ci/collect_changes.sh)
 takes the commit subjects since the commit the latest release was built from,
 which that release's `manifest.json` records, and drops the housekeeping ones
-(`chore`, `ci:`, `bump `, `wip`, `revert`, merges). Without a manifest to read,
-it starts at the newest `v<name>+<n>` tag, and with neither, at the first commit.
+(merge commits, and subjects starting, in any case, with `chore`, `ci:`, `bump `,
+`wip`, `merge ` or `revert `). Without a manifest to read, it starts at the
+newest `v<name>+<n>` tag, and with neither, at the first commit.
+
+Running the release again on the commit the latest release was built from — a
+re-run — repeats that release's notes rather than finding nothing. If the
+recorded commit is no longer in the history, after a force-push, the notes fall
+back to the tags. With `RELEASE_REPO` the tags are created in the releases
+repository, so the only tags here are from before a move to it, if any.
 
 A release's notes are at most 20 lines. Past that, the 19 newest are kept and the
 last line says how many were left out, as in `…and 6 more changes.` That one list
@@ -144,11 +156,13 @@ will.** Squash-merging a PR with a tidy subject is the easiest way to get this
 right.
 
 The manifest carries a rolling `changelog` of the last 20 releases rather than
-just the newest entry, and the app shows every entry above its own
-`content_version`. Someone who has not launched the game in six releases sees all
-six, newest first, instead of one line about the latest. Each release carries the
-previous manifest's changelog forward, so the history accumulates without anyone
-maintaining a file.
+just the newest entry, and the update prompt lists every entry above the running
+build's `content_version`, newest first, about twelve lines of release headings,
+changes and the blank lines between releases. Past that it ends "…and N more
+changes.", and **What's new** has the rest. Someone who has not launched the
+game in six releases sees what they missed in one prompt, not one line about the
+latest. Each release carries the previous manifest's changelog forward, so the
+history accumulates without anyone maintaining a file.
 
 If a release has no notes at all, the dialog is skipped entirely and the update
 applies directly — an empty dialog is worse than no dialog.
@@ -173,7 +187,7 @@ the old launcher too.
 Until your players are on 2.4.1, keep each release's notes short. Nine commit
 subjects of 60-odd characters are the most the old prompt holds whole: each
 wraps to two lines, and a tenth starts to clip its buttons. A player several
-releases behind sees every release they missed in one prompt: up to twelve
+releases behind sees every release they missed in one prompt: about twelve
 lines of release headings, changes and the blank lines between releases, then
 "…and N more changes.", and any of those lines can wrap. Releasing often and
 squash-merging both help.
@@ -186,7 +200,7 @@ they can still play. Installing the latest build by hand gets them the update.
 
 **What's new** in the update bar opens the full history, whether or not an
 update is pending, with the running build marked. It is hidden when neither
-source below has anything to show -- a button that only opens "nothing recorded
+source below has anything to show — a button that only opens "nothing recorded
 yet" is worse than no button, and a release of nothing but chore commits ships
 an entry with an empty `changes` list. It works with no network, from two
 sources:
@@ -227,8 +241,12 @@ intent is attempted anyway, since the system installer prompts on its own.
 
 The Windows build is a single self-contained `.exe` (the pack is embedded at
 export time), so installing an update is one file copy. A running executable
-cannot overwrite itself, so the app writes a small PowerShell helper that waits
-for the game's PID to exit, copies the new file over the old one, and relaunches.
+cannot overwrite itself, so the app writes a small PowerShell helper,
+`user://staging/apply_update.ps1`, and quits. The helper waits up to a minute for
+the game's PID to exit, copies the new file over the old one, and relaunches. The
+copy needs write access to the `.exe`'s folder: from somewhere the player cannot
+write, such as Program Files, it fails, and the game stays closed on the old
+version.
 
 ### Content updates, everywhere
 
@@ -253,7 +271,9 @@ manifest, and the update check settles on `UNAVAILABLE` with
 `No content pack published for <key>.`
 
 A Web export needs no pack, since it updates by being re-served — but the launcher
-does not know that, and will show that message from the first release onward.
+does not know that, and shows that message whenever a newer release exists. After a
+`binary_version` bump it says instead `Version <x> needs a new app build, but none
+is published for web yet.`
 There is one config for every platform, so turn `show_update_bar` and
 `check_on_launch` off for a web build from `_launcher_opening()`, which runs
 before the launcher reads them, until the launcher learns to skip the check
@@ -324,14 +344,14 @@ Create one (any machine with a JDK):
 keytool -genkeypair -v \
   -keystore release.keystore \
   -alias release \
-  -keyalg RSA -keysize 2048 -validity 10950 \
+  -keyalg RSA -keysize 4096 -validity 10950 \
   -dname "CN=YourGame, O=<owner>, C=FR"
 ```
 
 Then add three repository secrets:
 
 ```bash
-gh secret set ANDROID_KEYSTORE_BASE64  < <(base64 -w0 release.keystore)
+base64 < release.keystore | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64
 gh secret set ANDROID_KEYSTORE_PASSWORD  # the store password you chose
 gh secret set ANDROID_KEY_ALIAS          # release
 ```
@@ -356,12 +376,17 @@ sharing builds, not after.
   The rehearsal finds the release steps by name ("Assemble release directory", "Build update
   manifest") and expects the release directory to be `build/release`; it runs them with `bash -euo
   pipefail` and the `steps.version.outputs.*` values as environment variables, and ignores a step's own `env:`,
-  `working-directory:`, `shell:` and `if:`. A game that renames those steps or moves the directory
-  should remove the "Rehearse the release assembly" step from its own `ci.yml` (workflows are the
+  `working-directory:`, `shell:` and `if:`; a `run: >` block, or any `${{ }}` other than
+  `steps.version.outputs.*`, in those two steps is refused with an error. A game that renames those
+  steps, moves the directory or needs more should remove the "Rehearse the release assembly and
+  publish script" step from its own `ci.yml` (workflows are the
   game's, `ci/` is overwritten by the sync). The unit tests that read the workflows only apply
   to the template itself and are skipped in a game.
 - `contents: write` is granted to the release job only; the workflow default is
   `contents: read`.
+- `RELEASE_TOKEN` reaches only the three steps that talk to the releases
+  repository — the setup check, the patch-note collection and the publish — as
+  `GH_TOKEN`, and the checkout leaves no credentials in `.git/config`.
 - The keystore is written under `$RUNNER_TEMP`, outside the workspace, so no
   release or artifact glob can sweep it up. It is deleted in an `always()` step.
 - The base64 blob is piped through stdin, never passed as an argument (arguments
@@ -433,11 +458,13 @@ whether the token may write there, since any token can read a public repository:
 a token given the wrong repository fails at the publish step. Pull-request
 checks read `RELEASE_REPO` too, and need no token for a public repository.
 
-What becomes public is what a release carries: the version numbers, the patch
-notes, which are the commit subjects of the branch the release ran on, that
-branch's name for a branch build, and the short commit hash each build came
-from. The exported game is published too, and a Godot pack decompiles back to
-its scripts, so nothing secret belongs in the project.
+What becomes public is what a release carries: the version numbers; the patch
+notes, which are the commit subjects of the branch the release ran on; the
+subject of the commit each release was built from, shown in the release notes
+even when it is a `chore` or `wip` one the patch notes leave out; that branch's
+name for a branch build; and the short commit hash each build came from. The
+exported game is published too, and a Godot pack decompiles back to its
+scripts, so nothing secret belongs in the project.
 
 ### Moving a game that has already shipped
 
@@ -499,8 +526,8 @@ running. So:
   If you set one, give it a different machine, or at least a different OS user
   with its own home and its own runner registration, and give each runner a
   label of its own rather than just `self-hosted`. A release job holds the
-  signing keystore, its password and `RELEASE_TOKEN`, and the release step warns
-  when it runs on a self-hosted runner.
+  signing keystore, its password and `RELEASE_TOKEN`, and its *Check the release
+  repository* step warns when it runs on a self-hosted runner.
 - **Run the runner as a dedicated user**, never your own account. The workflows
   replace `~/godot` and Godot's export templates, and overwrite Godot's editor
   settings, in that user's home.
@@ -515,8 +542,10 @@ took 22 minutes to upload, against 8 seconds from GitHub's machines.
 ## Trying a change on a device before it ships
 
 Merging to `main` publishes to everyone, and a pull request's CI artifact is no
-substitute: it is signed with a key made fresh for each run, so Android refuses
-to install it over the real app, and installed beside it, it would never update.
+substitute: it is signed with a key made fresh for each run and carries the real
+app's package id, so Android will neither install it over the real app nor
+beside it, and installed in its place it could never take an app update
+(content packs would still apply).
 
 A **branch build** fixes that. It follows one branch's rolling prerelease instead
 of `/releases/latest/`, so a change reaches a real device — over the real update
@@ -556,6 +585,12 @@ path, binary updates included — before any player sees it.
    RELEASE_BRANCH=dev bash ci/prepare_build.sh
    ```
 
+   It rewrites `build_version.gd`, `export_presets.cfg` and `project.godot` in
+   your checkout. Export, then put them back with `git checkout --
+   build_version.gd export_presets.cfg project.godot` before you commit
+   anything; committed, `export_presets.cfg` and `project.godot` would give
+   every release the branch build's package id, name and `user://` directory.
+
    Deliberately *not* a field on `LauncherConfig`. A setting there would travel
    with the merge that ships the change — the last step below — and point every
    player's app at the prerelease. It would also be overridable by a content
@@ -564,7 +599,8 @@ path, binary updates included — before any player sees it.
 
 The branch name is used verbatim as the tag suffix and as one URL path segment,
 so it must be letters, digits, dot, underscore and hyphen, starting with a letter
-or digit. `prepare_build.sh` refuses anything else rather than building something
+or digit, with no `..` and not ending in `.` or `.lock`. `prepare_build.sh` refuses
+anything else rather than building something
 that cannot poll itself, and the launcher applies the same rule.
 
 ### What makes it a separate app
@@ -605,8 +641,18 @@ to "update" backwards.
 The fastest loop, without touching a phone:
 
 1. Run the project from the editor. It reports version `0`/`0`, so any published
-   release looks newer and the menu offers the update immediately.
-2. To test content updates specifically, publish a release, then run a build
-   whose `content_version` is lower than the published one.
-3. `user://` is `%APPDATA%\Godot\app_userdata\the game` on Windows. Delete
-   `update_state.json` and `content/` there to reset a machine to stock content.
+   release looks newer — as a new *app* build, since `binary_version` is
+   compared first. On Windows the menu offers **Update app**, downloads and
+   verifies the `.exe`, and stops at "Running from the editor — the new build
+   was saved to …". On Linux and macOS it reads "Version X needs a new build for
+   linux. Open the releases page to download it." (`macos` on a Mac), which
+   exercises only the check. Neither exercises a content update.
+2. To test content updates, run a build whose `binary_version` matches the
+   published release's and whose `content_version` is lower: install the
+   release before the latest, or export one after `bash ci/prepare_build.sh` on
+   an older commit.
+3. `user://` is `%APPDATA%\Godot\app_userdata\<project name>` on Windows, the
+   `config/name` in `project.godot` (your game's name after `ci/new_game.sh`).
+   A branch build uses `%APPDATA%\<game>-<branch>`, such as `deep-cavern-dev`.
+   Delete `update_state.json` and `content/` there to reset a machine to stock
+   content, and `changelog.json` to forget cached patch notes.
