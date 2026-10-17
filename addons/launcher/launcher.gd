@@ -84,6 +84,7 @@ static var _registered_catalogs: Dictionary = {}
 ## LauncherConfig.play_fade_seconds on an app build whose config predates it.
 ## Keep it the same as that field's default.
 const DEFAULT_PLAY_FADE_SECONDS := 0.3
+const LauncherVeil := preload("res://addons/launcher/launcher_veil.gd")
 
 var _config: LauncherConfig
 var _menu_box: BoxContainer
@@ -190,6 +191,10 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		# Before _ready() there is no dialog to close, and _overlay is not set yet.
 		if not _screen_built:
+			return
+		if _leaving:
+			# Play is already on its way into the game; Back neither quits nor stops it.
+			_hold_quit_for_this_back()
 			return
 		# In the tree, not just visible: a launcher kept hidden beside the game
 		# can hold a dialog the player cannot see, which must not eat their Back.
@@ -494,38 +499,45 @@ func _play_fade_seconds() -> float:
 ## thing a player sees of the game proper.
 ##
 ## The veil is the launcher's own child while it fades in, so a game that changes
-## scene itself from play_requested takes it down with the launcher. Only once
-## the fade is done does it move to the root, where it outlives the scene change:
-## the frame between the two scenes then shows the veil rather than the
-## project's clear colour, which is the game's own setting and may be any colour.
+## scene later, during the fade, takes it down with the launcher; one that changes
+## scene straight from play_requested never gets one (see _on_play_pressed()).
+## Only once the fade is done does it move to the root, where it outlives the
+## scene change: the frame between the two scenes then shows the veil rather than
+## the project's clear colour, which is the game's own setting and may be any
+## colour.
 func _fade_into(scene: String, seconds: float) -> void:
 	if seconds <= 0.0:
 		_change_to(scene)
 		return
-	# Nothing focused, so Enter or a gamepad button cannot press anything else
-	# during the fade; the veil takes the mouse.
-	get_viewport().gui_release_focus()
 	var layer := CanvasLayer.new()
 	layer.layer = 128
 	# A game that pauses its tree as it starts must not leave the veil up.
 	layer.process_mode = Node.PROCESS_MODE_ALWAYS
-	var veil := ColorRect.new()
+	var veil := LauncherVeil.new()
 	veil.color = Color(_config.background_color, 0.0)
 	veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# The veil takes the mouse, and the keyboard's focus with nowhere to move it:
+	# with nothing focused, Tab would focus the menu again for Enter to press.
 	veil.mouse_filter = Control.MOUSE_FILTER_STOP
+	veil.focus_mode = Control.FOCUS_ALL
+	for side: Side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
+		veil.set_focus_neighbor(side, ^".")
+	veil.focus_next = ^"."
+	veil.focus_previous = ^"."
 	layer.add_child(veil)
 	add_child(layer)
+	veil.grab_focus()
 
-	var fade_out := create_tween()
+	# In real time: a game that came back here with Engine.time_scale at 0 would
+	# otherwise never get past the fade.
+	var fade_out := create_tween().set_ignore_time_scale()
 	fade_out.tween_property(veil, "color:a", 1.0, seconds)
 	await fade_out.finished
 
 	layer.reparent(get_tree().root)
 	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# The veil's own tween, so it runs on once this scene is gone.
-	var fade_in := veil.create_tween()
-	fade_in.tween_property(veil, "color:a", 0.0, seconds)
-	fade_in.tween_callback(layer.queue_free)
+	veil.focus_mode = Control.FOCUS_NONE
+	veil.lift(seconds)
 	_change_to(scene)
 
 
@@ -534,6 +546,9 @@ func _fade_into(scene: String, seconds: float) -> void:
 func _change_to(scene: String) -> void:
 	if get_tree().change_scene_to_file(scene) != OK:
 		_leaving = false
+		# Focus left with the veil; a keyboard or gamepad needs somewhere to start.
+		if _first_button != null:
+			_first_button.grab_focus()
 
 
 func _explain_play() -> void:

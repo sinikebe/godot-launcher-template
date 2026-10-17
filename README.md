@@ -327,7 +327,8 @@ func _launcher_opening(launcher: Control) -> void:
 failing silently — unless you connect `play_requested` the same way, which with
 `play_scene` empty takes the Play action over entirely. `play_requested` is
 emitted on every press of Play, before the fade and the scene change when
-`play_scene` is set.
+`play_scene` is set; once Play is on its way into the game, further presses,
+and Back, are ignored.
 
 Play fades the launcher out to `background_color`, loads `play_scene` under
 that colour, and fades your game in, over `play_fade_seconds` each way (0.3 by
