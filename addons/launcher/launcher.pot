@@ -166,7 +166,7 @@ msgstr ""
 msgid "No release has been published yet."
 msgstr ""
 
-#: addons/launcher/launcher_config.gd:137
+#: addons/launcher/launcher_config.gd:139
 #: addons/launcher/update_service.gd:133
 msgid "No update repository configured (set update_repo in the launcher config)."
 msgstr ""
@@ -266,7 +266,7 @@ msgstr ""
 msgid "This build is too old to understand the update feed. Please reinstall from GitHub."
 msgstr ""
 
-#: addons/launcher/launcher_config.gd:139
+#: addons/launcher/launcher_config.gd:141
 msgid "This build was stamped for branch \"%s\", which is not a usable branch name: letters, digits, dot, underscore and hyphen only, starting with a letter or digit."
 msgstr ""
 
