@@ -83,6 +83,11 @@ var background_stretch: int = 3
 ## takes Play over.
 @export_file("*.tscn") var play_scene: String = ""
 
+## Seconds Play takes to fade the launcher out to background_color before it
+## loads play_scene, and again to fade the game in. 0 cuts straight to the game.
+## An app build from before this field fades for 0.3 s whatever the game sets.
+@export_range(0.0, 2.0, 0.05, "suffix:s") var play_fade_seconds: float = 0.3
+
 # ---------------------------------------------------------------------------
 @export_group("Updates")
 

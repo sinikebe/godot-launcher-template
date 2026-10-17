@@ -197,7 +197,9 @@ setup. Afterwards it will not delete it for you — `rm LICENSE` yourself.
 ## Adding your game to the Play button
 
 In `launcher_config.tres`, set **`play_scene`** to your first scene. Until then
-Play explains itself rather than failing silently.
+Play explains itself rather than failing silently. Play fades through
+`background_color` into it; `play_fade_seconds` sets how long, and `0` cuts
+straight to it.
 
 For more control, leave `play_scene` empty and connect the launcher's
 `play_requested` signal, then do whatever you like instead. Connect it from

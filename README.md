@@ -326,8 +326,14 @@ func _launcher_opening(launcher: Control) -> void:
 `play_scene` is what Play loads. Leave it empty and Play says so instead of
 failing silently — unless you connect `play_requested` the same way, which with
 `play_scene` empty takes the Play action over entirely. `play_requested` is
-emitted on every press of Play, before the scene change when `play_scene` is
-set.
+emitted on every press of Play, before the fade and the scene change when
+`play_scene` is set.
+
+Play fades the launcher out to `background_color`, loads `play_scene` under
+that colour, and fades your game in, over `play_fade_seconds` each way (0.3 by
+default). Set it to `0` for a straight cut. A game that takes Play over runs its
+own transition instead. An app build from before this setting existed fades
+for 0.3 s whatever you set.
 
 To come back to the launcher from your game, for a Leave or Main menu button,
 change scene to it:
