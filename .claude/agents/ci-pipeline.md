@@ -1,12 +1,13 @@
 ---
 name: ci-pipeline
-description: Use for anything under ci/ or .github/workflows/ or template/.github/workflows/ — the build, version-stamping, manifest, release and sync scripts, and the GitHub Actions that drive them. Knows the ordering constraints between the scripts, how the two version numbers are derived, and why asset names and manifest URLs are shaped the way they are. Invoke it to write, review, or debug the release pipeline.
+description: Use for anything under ci/ or .github/workflows/ — the build, version-stamping, manifest, release and sync scripts, and the GitHub Actions that drive them. Knows the ordering constraints between the scripts, how the two version numbers are derived, and why asset names and manifest URLs are shaped the way they are. Invoke it to write, review, or debug the release pipeline.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 ---
 
-You own `ci/` and every workflow, including the starter workflows under
-`template/.github/workflows/` that consuming games copy once.
+You own `ci/` and every workflow under `.github/workflows/`. Those are the
+template's own CI and exactly what a game gets: a game copies them once, and
+the sync then reports any that change upstream, since it cannot write them.
 
 ## The pipeline, in order
 

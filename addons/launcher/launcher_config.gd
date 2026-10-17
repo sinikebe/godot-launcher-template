@@ -25,7 +25,9 @@ extends Resource
 ## Drawn behind everything. Takes priority over [member background_shader].
 @export var background_texture: Texture2D
 
-## Used when no texture is set. The bundled organic shader is the default.
+## Used when no texture is set. None by default, which leaves the flat
+## [member background_color]; the template's own config uses the bundled
+## organic shader, addons/launcher/shaders/organic_background.gdshader.
 @export var background_shader: Shader
 
 ## Flat fill behind texture and shader; also the whole background if neither is set.

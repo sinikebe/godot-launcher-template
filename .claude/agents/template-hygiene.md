@@ -67,7 +67,7 @@ a reader trusts it. Check that claims still hold.
   an ignore rule that matters.
 - Does `README.md` describe platform support the release pipeline actually
   delivers? Compare `BuildInfo.platform_key()` against the `--artifact` list in
-  `template/.github/workflows/release.yml`.
+  `.github/workflows/release.yml`.
 - Does `docs/UPDATES.md` still match the code paths it describes?
 - Does the `## Layout` table list every top-level path, and only real ones?
 
