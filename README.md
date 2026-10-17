@@ -362,9 +362,15 @@ game downloads the new `.exe`, closes, and reopens on it, so the `.exe` has to
 sit in a folder the player can write to: anywhere else, such as Program Files,
 the game closes and stays on the old version. On Linux and macOS, which get no
 app build from this pipeline, the bar says the release needs a new build and
-the button reads **Open releases page** instead of **Update app**. **What's
-new** shows the notes of the last 20 releases, offline too. Errors show in the
-bar, and the button checks again.
+the button reads **Open releases page** instead of **Update app**. While the
+bar checks or downloads, its button reads **Cancel**: a cancelled check says so,
+and a cancelled download goes back to its offer, to be taken up later. Play
+works throughout, and a download carries on into the game unless cancelled. It
+moves only while the app runs, though: in the background it waits, and if the
+server gives up on the connection meanwhile, the download fails and starts
+again from the beginning when the player retries.
+**What's new** shows the notes of the last 20 releases, offline too. Errors
+show in the bar, and the button checks again.
 
 A web or iOS build has nothing to fetch, and says `No content pack published
 for <platform>.` whenever a newer release exists, or, after a `binary_version`
@@ -387,18 +393,22 @@ that in two places only:
 
 - **On the launcher's screen**, Back closes an open launcher dialog, and
   otherwise quits, as `application/config/quit_on_go_back` in your
-  `project.godot` says (on unless you turned it off). If your
+  `project.godot` says (on unless you turned it off). While an update check or
+  download is under way, the Back that would quit cancels it instead. If your
   `_launcher_opening()` adds a panel of its own, or your main scene is a scene
   of yours around the launcher, turn the quit off —
   `launcher.get_tree().quit_on_go_back = false` from `_launcher_opening()`, or
   `get_tree().quit_on_go_back = false` from that scene's `_ready()`, which runs
   after the launcher's — and handle Back by connecting the launcher's
-  `back_requested` signal. It is emitted only for a Back that none of the
-  launcher's dialogs took, so the Back that closes one never reaches your code
-  as well. Nothing then quits on Back unless your code does. Turn it off once,
+  `back_requested` signal. With the quit off, it is emitted for every Back that
+  did not close a launcher dialog, one during an update included, which may be
+  meant for your panel; the Back that closes a dialog never reaches your code as
+  well. `UpdateService.cancel()` stops the update if you want Back to.
+  Nothing then quits on Back unless your code does. Turn it off once,
   as above, rather than switching it as your panels open and close: for the frame
-  in which Back closes one of its dialogs, the launcher turns the quit off and
-  then on again, which undoes a switch your code makes in that same frame.
+  in which Back closes one of its dialogs or cancels an update, the launcher
+  turns the quit off and then on again, which undoes a switch your code makes in
+  that same frame.
 - **In your game**, Back does nothing until you handle it, so one stray tap no
   longer ends a run. The launcher turns the quit off as it leaves the scene
   tree. To pause, open a menu or return to the launcher, handle the
@@ -567,9 +577,9 @@ Things to watch:
 - **`UpdateService`**, an autoload. It ships in content packs, so it is always
   the current one: `state` (an `UpdateService.State`) and `state_changed`,
   `check_completed`, `progress_changed`, `check_for_updates()`,
-  `apply_pending_update()`, `retry_install()`, `restart_app()`,
-  `open_releases_page()`, `status_text()` and `history_text()`, for a game that
-  drives updates from its own screens.
+  `apply_pending_update()`, `retry_install()`, `is_busy()`, `cancel()`,
+  `restart_app()`, `open_releases_page()`, `status_text()` and
+  `history_text()`, for a game that drives updates from its own screens.
 - **`BuildInfo`**, an autoload whose code stays at the installed app build's
   version, so it has only the members that build had: `version_name`,
   `binary_version`, `content_version` (the mounted content pack's),

@@ -32,18 +32,16 @@ const MANIFEST_TIMEOUT := 30.0
 ##
 ## That is not "every connection": a 0.2 Mbps link -- congested cell, EDGE --
 ## still cannot finish either inside half an hour. It is the point past which
-## the wait is the problem rather than the deadline, and where a cancel
-## (issue #25) is the better answer than a larger number.
+## the wait is the problem rather than the deadline, and where the player's
+## Cancel (cancel()) is the better answer than a larger number.
 ##
 ## Not 0 (unlimited): a peer that accepts and then goes silent would hang the
-## download forever. `timeout` does not bound that case well anyway -- it waits
-## on the peer rather than the clock in threaded mode. See issue #33.
+## download forever.
 const DOWNLOAD_TIMEOUT := 1800.0
 ## How long a check may run before it is given up on. Longer than
-## MANIFEST_TIMEOUT, so a request that times out ends the check first, and this
-## only ends a check that stopped partway through; see check_for_updates(). A
-## silent server is not one: HTTPRequest's timeout can hold the main thread until
-## the server answers (#33), and no timer fires meanwhile.
+## MANIFEST_TIMEOUT, so a request that times out, on a silent server too, ends
+## the check first, and this only ends a check that stopped partway through; see
+## check_for_updates().
 const CHECK_DEADLINE := MANIFEST_TIMEOUT + 15.0
 const SUPPORTED_SCHEMA := 1
 ## Platforms with no automatic binary update: no CI export, no in-place swap.
@@ -91,6 +89,12 @@ var _check_serial := 0
 var _settled_serial := 0
 ## The latest check's deadline.
 var _check_deadline: SceneTreeTimer = null
+## Bumped by cancel(). Code awaiting a transfer remembers the value it started
+## under, and finding it changed when it resumes, returns without touching
+## anything: a newer check or download may own the state by then.
+var _generation := 0
+## The file the current download is filling, until it is verified and in place.
+var _download_part := ""
 ## Set once an APK has been downloaded and its checksum verified, so a retry
 ## after granting the install permission does not download it a second time.
 var _verified_apk_path := ""
@@ -225,6 +229,9 @@ func check_for_updates() -> State:
 			tr("update_repo still points at the launcher template. Set it to this game's own repository."))
 	_busy = true
 	_set_state(State.CHECKING)
+	if _settled_serial == serial:
+		# Cancelled by a listener of that state change.
+		return state
 	last_error = ""
 
 	# GitHub's CDN caches release download paths and ignores Cache-Control on them,
@@ -341,6 +348,39 @@ func open_releases_page() -> bool:
 	return true
 
 
+## True while a check or download is under way, including one whose code
+## stopped partway and left the updater marked busy (#24).
+func is_busy() -> bool:
+	return _busy or state in [State.CHECKING, State.DOWNLOADING, State.VERIFYING]
+
+
+## Stops whatever the updater is busy with (#25). A check ends on FAILED; a
+## download goes back to its offer, to be taken up again later. Does nothing
+## when the updater is not busy.
+##
+## The transfer stops at once, however slow or silent the server: requests are
+## not threaded (see _new_request()), so cancel_request() has no read to wait for.
+func cancel() -> State:
+	if not is_busy():
+		return state
+	_generation += 1
+	var http := _active_request
+	if http != null:
+		# request_completed never fires after this, so nothing awaiting it
+		# resumes; Godot removes the partial file.
+		http.cancel_request()
+		_teardown_request(http)
+	elif not _download_part.is_empty():
+		# Stopped after its transfer, as by a script error (#24): nothing will
+		# move these bytes into place now.
+		DirAccess.remove_absolute(_download_part)
+	_download_part = ""
+	_busy = false
+	if state == State.CHECKING or pending_artifact.is_empty():
+		return _fail(tr("Update check cancelled."))
+	return _finish(State.BINARY_READY if pending_kind == "binary" else State.CONTENT_READY, "")
+
+
 ## Downloads and applies whatever the last check turned up.
 func apply_pending_update() -> State:
 	if _busy or pending_artifact.is_empty():
@@ -358,20 +398,16 @@ func _apply_content() -> State:
 	DirAccess.make_dir_recursive_absolute(BuildInfo.STAGING_DIR)
 	DirAccess.make_dir_recursive_absolute(BuildInfo.CONTENT_DIR)
 
-	var staged := BuildInfo.STAGING_DIR.path_join("content-%d.pck.part" % version)
-	var download_state := await _download_verified(url, staged)
-	if download_state != State.VERIFYING:
-		_busy = false
-		return download_state
-
 	# Per-version filename: the pack mounted by this process stays locked on
 	# Windows, so a new one must never try to overwrite it.
 	var final_path := BuildInfo.CONTENT_DIR.path_join("content-%d.pck" % version)
-	if FileAccess.file_exists(final_path):
-		DirAccess.remove_absolute(final_path)
-	if DirAccess.rename_absolute(staged, final_path) != OK:
+	var generation := _generation
+	var download_state := await _download_verified(url, final_path)
+	if generation != _generation:
+		return state
+	if download_state != State.VERIFYING:
 		_busy = false
-		return _fail(tr("Could not move the downloaded content into place."))
+		return download_state
 
 	var size := 0
 	var probe := FileAccess.open(final_path, FileAccess.READ)
@@ -410,7 +446,10 @@ func _apply_binary() -> State:
 			_busy = false
 			return _hand_off_to_installer()
 
+		var generation := _generation
 		var download_state := await _download_verified(url, apk_path)
+		if generation != _generation:
+			return state
 		if download_state != State.VERIFYING:
 			_busy = false
 			return download_state
@@ -420,7 +459,10 @@ func _apply_binary() -> State:
 		return _hand_off_to_installer()
 
 	if OS.get_name() == "Windows":
+		var generation := _generation
 		var result := await _apply_windows_binary(url)
+		if generation != _generation:
+			return state
 		_busy = false
 		return result
 
@@ -468,31 +510,63 @@ func retry_install() -> State:
 # Transfer helpers
 # ---------------------------------------------------------------------------
 
-## Downloads [param url] to [param dest] and checks it against the manifest
-## hash. Returns State.VERIFYING on success, or a failure state.
+## Downloads [param url], checks it against the manifest hash and moves it to
+## [param dest]. Returns State.VERIFYING on success, or a failure state. A
+## caller whose download was cancelled finds _generation changed, and must then
+## leave the state alone.
+##
+## The bytes arrive in a staging file named for this attempt (_part_path()), and
+## only verified bytes reach dest. A transfer whose end was already on its way
+## when cancel() stopped it removes its own file, which must never be the one a
+## newer attempt is filling.
 func _download_verified(url: String, dest: String) -> State:
 	if url.is_empty():
 		return _fail(tr("The manifest entry has no download URL."))
 
+	var generation := _generation
+	var part := _part_path(dest)
+	_download_part = part
 	_set_state(State.DOWNLOADING)
-	var response := await _request(url, dest)
+	if generation != _generation:
+		# Cancelled by a listener of that state change, before anything started.
+		return state
+	var response := await _request(url, part)
+	if generation != _generation:
+		# Cancelled while it ran. _request() has removed what it fetched.
+		return state
 	if not response.ok:
-		DirAccess.remove_absolute(dest)
+		DirAccess.remove_absolute(part)
 		return _fail(response.error)
 
 	_set_state(State.VERIFYING)
+	if generation != _generation:
+		# Cancelled by a listener of that state change, which removed the file.
+		return state
 	var expected := str(pending_artifact.get("sha256", "")).strip_edges().to_lower()
 	if expected.is_empty():
 		# Refuse to install something we cannot authenticate.
-		DirAccess.remove_absolute(dest)
+		DirAccess.remove_absolute(part)
 		return _fail(tr("The manifest is missing a checksum for this download."))
 
-	var actual := FileAccess.get_sha256(dest).to_lower()
+	var actual := FileAccess.get_sha256(part).to_lower()
 	if actual != expected:
-		DirAccess.remove_absolute(dest)
+		DirAccess.remove_absolute(part)
 		return _fail(tr("The download is corrupted (checksum mismatch) and was discarded."))
 
+	if FileAccess.file_exists(dest):
+		DirAccess.remove_absolute(dest)
+	if DirAccess.rename_absolute(part, dest) != OK:
+		DirAccess.remove_absolute(part)
+		return _fail(tr("Could not move the download into place."))
+	_download_part = ""
 	return State.VERIFYING
+
+
+## Where a download for [param dest] is staged: in the staging directory, named
+## for this attempt, and ending in .part, which a launch's staging sweep removes
+## once it has sat idle.
+func _part_path(dest: String) -> String:
+	return BuildInfo.STAGING_DIR.path_join("%s.%d.part" % [dest.get_file(), _generation])
 
 
 ## True when [param path] already holds exactly the bytes the manifest expects.
@@ -503,23 +577,41 @@ func _matches_pending_checksum(path: String) -> bool:
 	return FileAccess.get_sha256(path).to_lower() == expected
 
 
-## One HTTP GET. When [param download_to] is set the body is streamed to that
-## file instead of being kept in memory.
-func _request(url: String, download_to: String) -> Dictionary:
+## The request _request() makes, not yet started or in the tree.
+func _new_request(download_to: String) -> HTTPRequest:
 	var http := HTTPRequest.new()
 	# download_to is set only for artifacts, so it is also the signal for which
 	# budget applies -- the one call site that streams to a file is the one that
 	# needs the long one.
 	http.timeout = DOWNLOAD_TIMEOUT if not download_to.is_empty() else MANIFEST_TIMEOUT
-	http.use_threads = true
+	# Not threaded. A threaded request reads in blocking chunks, and
+	# cancel_request() -- the player's Cancel, the timeout, freeing the node on
+	# quit -- waits on the main thread for the read under way, which a slow or
+	# silent server can make a minute or forever (#25, #33). Unthreaded, the
+	# request is polled each frame and stops the moment it is told to. The price
+	# is that it moves only while the main loop runs: a download pauses while the
+	# app is in the background or a frame is held up. A frame reads at most one
+	# chunk, so the large chunk raises that cap to 1 MiB a frame; processing
+	# always keeps a game that pauses its tree from pausing a download.
+	http.use_threads = false
+	http.download_chunk_size = 1 << 20
+	http.process_mode = Node.PROCESS_MODE_ALWAYS
 	# GitHub serves release assets from a redirect to a signed CDN URL.
 	http.max_redirects = 8
 	if not download_to.is_empty():
 		http.download_file = download_to
+	return http
+
+
+## One HTTP GET. When [param download_to] is set the body is streamed to that
+## file instead of being kept in memory.
+func _request(url: String, download_to: String) -> Dictionary:
+	var http := _new_request(download_to)
 	add_child(http)
 
 	_active_request = http
 	set_process(true)
+	var generation := _generation
 
 	var headers := PackedStringArray([
 		"User-Agent: " + USER_AGENT,
@@ -537,6 +629,11 @@ func _request(url: String, download_to: String) -> Dictionary:
 
 	var result: Array = await http.request_completed
 	_teardown_request(http)
+	if generation != _generation:
+		# Ended in the same frame as a cancel(). Nobody wants it.
+		if not download_to.is_empty():
+			DirAccess.remove_absolute(download_to)
+		return {"ok": false, "code": 0, "body": PackedByteArray(), "error": ""}
 
 	var outcome := int(result[0])
 	var code := int(result[1])
@@ -616,8 +713,9 @@ func _apply_windows_binary(url: String) -> State:
 	DirAccess.make_dir_recursive_absolute(BuildInfo.STAGING_DIR)
 	var staged := BuildInfo.STAGING_DIR.path_join("update-%d.exe" % pending_version)
 
+	var generation := _generation
 	var download_state := await _download_verified(url, staged)
-	if download_state != State.VERIFYING:
+	if generation != _generation or download_state != State.VERIFYING:
 		return download_state
 
 	if OS.has_feature("editor"):
@@ -693,6 +791,9 @@ func _on_check_overdue(serial: int) -> void:
 
 
 func _fail(message: String) -> State:
+	# Before the state changes: whoever hears of it asks is_busy(), which must
+	# already say the work is over.
+	_busy = false
 	_settled_serial = _check_serial
 	last_error = message
 	push_warning("[UpdateService] " + message)
@@ -702,6 +803,7 @@ func _fail(message: String) -> State:
 
 
 func _finish(next: State, message: String) -> State:
+	_busy = false
 	_settled_serial = _check_serial
 	last_error = message
 	_set_state(next)

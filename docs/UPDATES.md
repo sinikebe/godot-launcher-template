@@ -52,9 +52,9 @@ It is monotonic, moves on every merge, and needs no bookkeeping.
    partway, on a script error, is given up on 45 seconds after it started: the
    bar says so and the button works again
    ([why](TROUBLESHOOTING.md#the-bar-says-the-update-check-did-not-finish)). A
-   server that accepts the connection and then goes silent is a different case:
-   the request's own timeout can hold the whole app until the server answers or
-   drops it.
+   server that accepts the connection and then goes silent ends sooner, at the
+   request's own 30-second timeout. While the bar checks or downloads, its
+   button reads **Cancel**, which stops the transfer at once.
 
 Packs are stored per-version (`user://content/content-<n>.pck`) rather than
 under one name. A mounted pack stays locked for the life of the process on

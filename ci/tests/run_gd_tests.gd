@@ -63,6 +63,7 @@ func _initialize() -> void:
 	_test_staging_sweep()
 	_test_too_new_manifest_is_not_cached()
 	_test_check_deadline()
+	_test_cancel()
 	_cleanup()
 
 	print("%d checks, %d failed" % [_checks, _fails])
@@ -803,6 +804,95 @@ func _test_check_deadline() -> void:
 		"each check starts its own deadline")
 	eq(_us._settled_serial, before + 1, "a check that ends early is settled, so its deadline does nothing")
 	eq(_us.state, _us.State.UNAVAILABLE, "a check with no update_repo ends at once")
+	_us._finish(_us.State.IDLE, "")
+
+
+## Cancel stops whatever the updater is busy with (#25). Driven by hand, with
+## requests that never start: a real transfer needs a server.
+func _test_cancel() -> void:
+	_us._finish(_us.State.UP_TO_DATE, "")
+	eq(_us.cancel(), _us.State.UP_TO_DATE, "cancel does nothing when the updater is not busy")
+
+	# A check: ends on FAILED, and its answer, if it ever comes, is dropped.
+	_us._check_serial += 1
+	var serial: int = _us._check_serial
+	_us._busy = true
+	_us._set_state(_us.State.CHECKING)
+	check(_us.is_busy(), "a check is busy")
+	eq(_us.cancel(), _us.State.FAILED, "a cancelled check ends on FAILED")
+	eq(_us.status_text(), "Update check cancelled.", "a cancelled check says so")
+	check(not _us._busy, "a cancelled check lets the next one start")
+	_us._settle_check(serial, {"ok": true, "code": 200, "body": '{"content_version": 999}'.to_utf8_buffer(), "error": ""})
+	eq(_us.state, _us.State.FAILED, "a cancelled check's late answer is dropped")
+
+	# A download: back to its offer, content or app.
+	for kind: String in ["content", "binary"]:
+		_us.pending_kind = kind
+		_us.pending_artifact = {"url": "https://example.invalid/x", "sha256": "00"}
+		_us._busy = true
+		_us._set_state(_us.State.DOWNLOADING)
+		var offer: int = _us.State.CONTENT_READY if kind == "content" else _us.State.BINARY_READY
+		eq(_us.cancel(), offer, "a cancelled %s download goes back to its offer" % kind)
+		check(not _us._busy, "a cancelled %s download can be started again" % kind)
+
+	# Busy with no busy state, as when apply code stops before DOWNLOADING (#24).
+	_us.pending_kind = "content"
+	_us._busy = true
+	_us._set_state(_us.State.CONTENT_READY)
+	check(_us.is_busy(), "a stuck _busy counts as busy, so it can be cancelled")
+	eq(_us.cancel(), _us.State.CONTENT_READY, "cancelling a stuck _busy keeps the offer")
+	check(not _us._busy, "cancelling a stuck _busy clears it")
+
+	# Stopped after its transfer, with the bytes in staging and nothing to move them.
+	DirAccess.make_dir_recursive_absolute(_bi.STAGING_DIR)
+	var part: String = _us._part_path("user://content/content-9.pck")
+	check(part.begins_with(_bi.STAGING_DIR) and part.ends_with(".part"), "a download is staged as a .part, which a launch sweeps")
+	_write_text(part, "verified bytes")
+	_us._download_part = part
+	_us._busy = true
+	_us._set_state(_us.State.VERIFYING)
+	_us.cancel()
+	check(not FileAccess.file_exists(part), "cancelling after the transfer removes its staged file")
+	check(_us._part_path("user://content/content-9.pck") != part, "after a cancel, a new attempt stages under another name")
+
+	# Requests are not threaded: a threaded one's cancel_request() waits on the main
+	# thread for a read that a slow or silent server can make last forever (#33).
+	for download_to: String in ["", "user://staging/x.part"]:
+		var made: HTTPRequest = _us._new_request(download_to)
+		check(not made.use_threads, "requests are not threaded, so stopping one never waits on a read")
+		check(made.process_mode == Node.PROCESS_MODE_ALWAYS, "a game that pauses its tree does not pause a download")
+		eq(made.timeout, _us.DOWNLOAD_TIMEOUT if not download_to.is_empty() else _us.MANIFEST_TIMEOUT,
+			"a request %s gets its own timeout" % ("for a file" if not download_to.is_empty() else "for the manifest"))
+		made.free()
+
+	# A download that fails is over by the time anyone hears of it: the bar asks
+	# is_busy() on state_changed, and a true there leaves it offering Cancel.
+	var heard: Array = []
+	var listen := func(_s: int) -> void: heard.append(_us.is_busy())
+	_us.state_changed.connect(listen)
+	for ending: String in ["fail", "finish"]:
+		heard.clear()
+		_us._busy = true
+		_us._set_state(_us.State.DOWNLOADING)
+		heard.clear()
+		if ending == "fail":
+			_us._fail("x")
+		else:
+			_us._finish(_us.State.CONTENT_READY, "")
+		eq(heard, [false], "a download that ends through _%s() is no longer busy when it says so" % ending)
+	_us.state_changed.disconnect(listen)
+
+	# Cancel stops the transfer under way and frees it.
+	var http := HTTPRequest.new()
+	_us.add_child(http)
+	_us._active_request = http
+	_us._busy = true
+	_us._set_state(_us.State.DOWNLOADING)
+	_us.cancel()
+	check(_us._active_request == null, "after a cancel, no request is the active one")
+	check(http.is_queued_for_deletion(), "a cancelled transfer is freed at once")
+	_us.pending_kind = ""
+	_us.pending_artifact = {}
 	_us._finish(_us.State.IDLE, "")
 
 

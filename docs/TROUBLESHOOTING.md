@@ -115,7 +115,7 @@ to your game's own repository, or to the releases repository it publishes to.
 ### The bar says "The update check did not finish."
 
 The check stopped partway on a script error, so the launcher gave up on it
-after 45 seconds and turned the button back on. The usual cause is that the
+after 45 seconds, and the button checks again. The usual cause is that the
 installed app is older than the content pack it is running, and the pack's
 launcher code calls something that app build does not have; trying again then
 ends the same way every time. In a debug build, a manifest this launcher cannot

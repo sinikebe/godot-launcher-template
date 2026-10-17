@@ -18,11 +18,13 @@ signal custom_button_pressed(label: String)
 ## configured, connecting this takes the Play action over entirely.
 signal play_requested()
 
-## Emitted when Back reaches the launcher's screen and none of the launcher's
-## own dialogs took it. A game that turns get_tree().quit_on_go_back off to
-## handle Back itself here -- a panel of its own, a scene around the launcher --
-## connects this rather than handling NOTIFICATION_WM_GO_BACK_REQUEST, which
-## also arrives for a Back that only closed one of the launcher's dialogs.
+## Emitted when Back reaches the launcher's screen and the launcher did not take
+## it to close one of its dialogs or, with the quit on, to cancel an update. A
+## game that turns get_tree().quit_on_go_back off to handle Back itself here --
+## a panel of its own, a scene around the launcher -- connects this rather than
+## handling NOTIFICATION_WM_GO_BACK_REQUEST, which also arrives for a Back the
+## launcher took. Such a game gets a Back during an update too, and can call
+## UpdateService.cancel() itself.
 signal back_requested()
 
 ## The game's own script for the launcher's screen, run before it builds
@@ -186,6 +188,12 @@ func _notification(what: int) -> void:
 		# can hold a dialog the player cannot see, which must not eat their Back.
 		if _overlay.is_visible_in_tree():
 			_hide_overlay()
+			_hold_quit_for_this_back()
+		elif get_tree().quit_on_go_back and _update_button.is_visible_in_tree() and UpdateService.is_busy():
+			# Back would quit: a check or download under way is stopped first, as the
+			# bar's Cancel does (#25), and the next Back quits. With the quit off,
+			# the game handles Back, and may have a panel of its own to close.
+			UpdateService.cancel()
 			_hold_quit_for_this_back()
 		else:
 			back_requested.emit()
@@ -470,8 +478,12 @@ func _on_quit_pressed() -> void:
 
 
 ## The update button is the single entry point: it checks, then downloads, then
-## restarts, depending on where the updater currently is.
+## restarts, depending on where the updater currently is -- and while it is busy,
+## cancels.
 func _on_update_pressed() -> void:
+	if UpdateService.is_busy():
+		UpdateService.cancel()
+		return
 	match UpdateService.state:
 		UpdateService.State.CONTENT_READY, UpdateService.State.BINARY_READY:
 			await _prompt_update()
@@ -512,13 +524,7 @@ func _explain_install_handoff() -> void:
 func _refresh_update_ui() -> void:
 	_status_label.text = UpdateService.status_text()
 
-	var busy := UpdateService.state in [
-		UpdateService.State.CHECKING,
-		UpdateService.State.DOWNLOADING,
-		UpdateService.State.VERIFYING,
-	]
 	_progress.visible = UpdateService.state == UpdateService.State.DOWNLOADING
-	_update_button.disabled = busy
 
 	# A fresh install that has never reached the network has no notes to show,
 	# and a button that only opens "nothing recorded yet" is worse than no button.
@@ -533,6 +539,12 @@ func _refresh_update_ui() -> void:
 	# scene properties to keep in step.
 	_notes_button.text = tr("What's new")
 
+	if UpdateService.is_busy():
+		# Never a disabled button with no way out: busy, it stops the check or
+		# download (#25). The status line says what is under way.
+		_update_button.text = tr("Cancel")
+		return
+
 	match UpdateService.state:
 		UpdateService.State.BINARY_READY:
 			_update_button.text = tr("Update app")
@@ -542,10 +554,6 @@ func _refresh_update_ui() -> void:
 			_update_button.text = tr("Install")
 		UpdateService.State.RESTART_REQUIRED:
 			_update_button.text = tr("Restart")
-		UpdateService.State.CHECKING:
-			_update_button.text = tr("Checking…")
-		UpdateService.State.DOWNLOADING, UpdateService.State.VERIFYING:
-			_update_button.text = tr("Working…")
 		UpdateService.State.UNAVAILABLE when UpdateService.manual_download_needed:
 			_update_button.text = tr("Open releases page")
 		_:
@@ -691,7 +699,8 @@ func _fit_overlay() -> void:
 	_overlay_scroll.update_minimum_size()
 
 
-## Keeps the Back that just closed a dialog from quitting as well. Godot asks
+## Keeps the Back that just closed a dialog, or cancelled an update, from
+## quitting as well. Godot asks
 ## quit_on_go_back in root's go_back_requested, emitted straight after this
 ## notification, so the game's setting is put back only after that, deferred.
 func _hold_quit_for_this_back() -> void:
