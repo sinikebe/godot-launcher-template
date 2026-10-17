@@ -49,6 +49,16 @@ timer armed at the start, `CHECK_DEADLINE`, fails a check left on `CHECKING`
 `MANIFEST_TIMEOUT`, and keep its handler to this script's own state: it is what
 still runs when the check's own code is broken.
 
+**Busy is never a dead end.** While `UpdateService.is_busy()`, the update
+button reads Cancel and calls `cancel()`, and Back on the launcher's screen does
+the same (#25). `cancel()` calls `cancel_request()` only on a transfer that
+received bytes in the last `CANCEL_LIVE_MSEC`: on a silent server it holds the
+main thread until the server answers (#33). A quiet transfer is left to end by
+itself, so everything that awaits one checks `_generation` when it resumes and,
+finding it changed, returns without touching state. Downloads land in a
+per-attempt `.part` (`_part_path()`), so a transfer left running never shares a
+file with a newer attempt.
+
 **`HTTPRequest.timeout` is total wall-clock, not idle.** The internal timer is
 reset only in `request()`. A timeout sized for a small JSON fetch will kill a
 large artifact download outright. The manifest fetch and the artifact download

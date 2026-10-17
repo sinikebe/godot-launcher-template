@@ -32,8 +32,8 @@ const MANIFEST_TIMEOUT := 30.0
 ##
 ## That is not "every connection": a 0.2 Mbps link -- congested cell, EDGE --
 ## still cannot finish either inside half an hour. It is the point past which
-## the wait is the problem rather than the deadline, and where a cancel
-## (issue #25) is the better answer than a larger number.
+## the wait is the problem rather than the deadline, and where the player's
+## Cancel (cancel()) is the better answer than a larger number.
 ##
 ## Not 0 (unlimited): a peer that accepts and then goes silent would hang the
 ## download forever. `timeout` does not bound that case well anyway -- it waits
@@ -45,6 +45,9 @@ const DOWNLOAD_TIMEOUT := 1800.0
 ## silent server is not one: HTTPRequest's timeout can hold the main thread until
 ## the server answers (#33), and no timer fires meanwhile.
 const CHECK_DEADLINE := MANIFEST_TIMEOUT + 15.0
+## How recently a transfer must have received bytes for cancel() to stop it
+## outright rather than leave it to end by itself; see there.
+const CANCEL_LIVE_MSEC := 1000
 const SUPPORTED_SCHEMA := 1
 ## Platforms with no automatic binary update: no CI export, no in-place swap.
 const MANUAL_BINARY_PLATFORMS: Array[String] = ["linux", "macos"]
@@ -91,6 +94,15 @@ var _check_serial := 0
 var _settled_serial := 0
 ## The latest check's deadline.
 var _check_deadline: SceneTreeTimer = null
+## Bumped by cancel(). A transfer remembers the value it started under, and one
+## that finds it changed when it ends was given up on: it returns without
+## touching anything, because a newer check or download may own the state.
+var _generation := 0
+## The active request's byte count, and when it last moved (msec, -1 for never).
+var _moved_bytes := 0
+var _moved_msec := -1
+## The file the current download is filling, until it is verified and in place.
+var _download_part := ""
 ## Set once an APK has been downloaded and its checksum verified, so a retry
 ## after granting the install permission does not download it a second time.
 var _verified_apk_path := ""
@@ -101,12 +113,17 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _active_request == null:
+		return
+	var bytes := _active_request.get_downloaded_bytes()
+	if bytes != _moved_bytes:
+		_moved_bytes = bytes
+		_moved_msec = Time.get_ticks_msec()
 	# The manifest fetch goes through the same request helper, but a few hundred
 	# bytes of JSON is not worth reporting as a download -- and doing so would
 	# stomp the "Checking for updates…" status with a progress line.
-	if _active_request == null or state != State.DOWNLOADING:
-		return
-	progress_changed.emit(_active_request.get_downloaded_bytes(), _active_request.get_body_size())
+	if state == State.DOWNLOADING:
+		progress_changed.emit(bytes, _active_request.get_body_size())
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +358,53 @@ func open_releases_page() -> bool:
 	return true
 
 
+## True while a check or download is under way, including one whose code
+## stopped partway and left the updater marked busy (#24).
+func is_busy() -> bool:
+	return _busy or state in [State.CHECKING, State.DOWNLOADING, State.VERIFYING]
+
+
+## Stops whatever the updater is busy with (#25). A check ends on FAILED; a
+## download goes back to its offer, to be taken up again later. Does nothing
+## when the updater is not busy.
+##
+## A transfer still receiving bytes is cancelled outright. One that has gone
+## quiet is left to end by itself, and what it fetches is thrown away:
+## HTTPRequest.cancel_request() waits for the transfer's current read, which a
+## silent server never finishes, with the main thread held (#33). A stalled
+## transfer uses no bandwidth, so leaving it costs nothing.
+func cancel() -> State:
+	if not is_busy():
+		return state
+	_generation += 1
+	var http := _active_request
+	if http != null:
+		if _transfer_is_moving():
+			# request_completed never fires after this, so nothing awaiting it
+			# resumes; and the partial file goes with it.
+			http.cancel_request()
+			_teardown_request(http)
+		else:
+			# Kept until it ends, when _request() frees it and removes its file.
+			_active_request = null
+			set_process(false)
+	elif not _download_part.is_empty():
+		# Stopped after its transfer, as by a script error (#24): nothing will
+		# move these bytes into place now.
+		DirAccess.remove_absolute(_download_part)
+	_download_part = ""
+	_busy = false
+	if state == State.CHECKING or pending_artifact.is_empty():
+		return _fail(tr("Update check cancelled."))
+	return _finish(State.BINARY_READY if pending_kind == "binary" else State.CONTENT_READY, "")
+
+
+## Whether the active request received bytes in the last CANCEL_LIVE_MSEC.
+func _transfer_is_moving() -> bool:
+	return _active_request != null and _moved_msec >= 0 \
+		and Time.get_ticks_msec() - _moved_msec < CANCEL_LIVE_MSEC
+
+
 ## Downloads and applies whatever the last check turned up.
 func apply_pending_update() -> State:
 	if _busy or pending_artifact.is_empty():
@@ -358,20 +422,16 @@ func _apply_content() -> State:
 	DirAccess.make_dir_recursive_absolute(BuildInfo.STAGING_DIR)
 	DirAccess.make_dir_recursive_absolute(BuildInfo.CONTENT_DIR)
 
-	var staged := BuildInfo.STAGING_DIR.path_join("content-%d.pck.part" % version)
-	var download_state := await _download_verified(url, staged)
-	if download_state != State.VERIFYING:
-		_busy = false
-		return download_state
-
 	# Per-version filename: the pack mounted by this process stays locked on
 	# Windows, so a new one must never try to overwrite it.
 	var final_path := BuildInfo.CONTENT_DIR.path_join("content-%d.pck" % version)
-	if FileAccess.file_exists(final_path):
-		DirAccess.remove_absolute(final_path)
-	if DirAccess.rename_absolute(staged, final_path) != OK:
+	var generation := _generation
+	var download_state := await _download_verified(url, final_path)
+	if generation != _generation:
+		return state
+	if download_state != State.VERIFYING:
 		_busy = false
-		return _fail(tr("Could not move the downloaded content into place."))
+		return download_state
 
 	var size := 0
 	var probe := FileAccess.open(final_path, FileAccess.READ)
@@ -410,7 +470,10 @@ func _apply_binary() -> State:
 			_busy = false
 			return _hand_off_to_installer()
 
+		var generation := _generation
 		var download_state := await _download_verified(url, apk_path)
+		if generation != _generation:
+			return state
 		if download_state != State.VERIFYING:
 			_busy = false
 			return download_state
@@ -420,7 +483,10 @@ func _apply_binary() -> State:
 		return _hand_off_to_installer()
 
 	if OS.get_name() == "Windows":
+		var generation := _generation
 		var result := await _apply_windows_binary(url)
+		if generation != _generation:
+			return state
 		_busy = false
 		return result
 
@@ -468,31 +534,57 @@ func retry_install() -> State:
 # Transfer helpers
 # ---------------------------------------------------------------------------
 
-## Downloads [param url] to [param dest] and checks it against the manifest
-## hash. Returns State.VERIFYING on success, or a failure state.
+## Downloads [param url], checks it against the manifest hash and moves it to
+## [param dest]. Returns State.VERIFYING on success, or a failure state. A
+## caller whose download was cancelled finds _generation changed, and must then
+## leave the state alone.
+##
+## The bytes arrive in a staging file named for this attempt (_part_path()), and
+## only verified bytes reach dest. cancel() can leave a stalled transfer running
+## rather than wait on it, and that transfer must not write into, or on giving up
+## delete, the file a newer attempt is filling.
 func _download_verified(url: String, dest: String) -> State:
 	if url.is_empty():
 		return _fail(tr("The manifest entry has no download URL."))
 
+	var generation := _generation
+	var part := _part_path(dest)
+	_download_part = part
 	_set_state(State.DOWNLOADING)
-	var response := await _request(url, dest)
+	var response := await _request(url, part)
+	if generation != _generation:
+		# Cancelled while it ran. _request() has removed what it fetched.
+		return state
 	if not response.ok:
-		DirAccess.remove_absolute(dest)
+		DirAccess.remove_absolute(part)
 		return _fail(response.error)
 
 	_set_state(State.VERIFYING)
 	var expected := str(pending_artifact.get("sha256", "")).strip_edges().to_lower()
 	if expected.is_empty():
 		# Refuse to install something we cannot authenticate.
-		DirAccess.remove_absolute(dest)
+		DirAccess.remove_absolute(part)
 		return _fail(tr("The manifest is missing a checksum for this download."))
 
-	var actual := FileAccess.get_sha256(dest).to_lower()
+	var actual := FileAccess.get_sha256(part).to_lower()
 	if actual != expected:
-		DirAccess.remove_absolute(dest)
+		DirAccess.remove_absolute(part)
 		return _fail(tr("The download is corrupted (checksum mismatch) and was discarded."))
 
+	if FileAccess.file_exists(dest):
+		DirAccess.remove_absolute(dest)
+	if DirAccess.rename_absolute(part, dest) != OK:
+		DirAccess.remove_absolute(part)
+		return _fail(tr("Could not move the download into place."))
+	_download_part = ""
 	return State.VERIFYING
+
+
+## Where a download for [param dest] is staged: in the staging directory, named
+## for this attempt, and ending in .part so that a launch sweeps it once it has
+## sat idle, even on a binary from before this.
+func _part_path(dest: String) -> String:
+	return BuildInfo.STAGING_DIR.path_join("%s.%d.part" % [dest.get_file(), _generation])
 
 
 ## True when [param path] already holds exactly the bytes the manifest expects.
@@ -519,7 +611,10 @@ func _request(url: String, download_to: String) -> Dictionary:
 	add_child(http)
 
 	_active_request = http
+	_moved_bytes = 0
+	_moved_msec = -1
 	set_process(true)
+	var generation := _generation
 
 	var headers := PackedStringArray([
 		"User-Agent: " + USER_AGENT,
@@ -537,6 +632,11 @@ func _request(url: String, download_to: String) -> Dictionary:
 
 	var result: Array = await http.request_completed
 	_teardown_request(http)
+	if generation != _generation:
+		# Left running by cancel(), and only now ended. Nobody wants it.
+		if not download_to.is_empty():
+			DirAccess.remove_absolute(download_to)
+		return {"ok": false, "code": 0, "body": PackedByteArray(), "error": ""}
 
 	var outcome := int(result[0])
 	var code := int(result[1])
@@ -616,8 +716,9 @@ func _apply_windows_binary(url: String) -> State:
 	DirAccess.make_dir_recursive_absolute(BuildInfo.STAGING_DIR)
 	var staged := BuildInfo.STAGING_DIR.path_join("update-%d.exe" % pending_version)
 
+	var generation := _generation
 	var download_state := await _download_verified(url, staged)
-	if download_state != State.VERIFYING:
+	if generation != _generation or download_state != State.VERIFYING:
 		return download_state
 
 	if OS.has_feature("editor"):

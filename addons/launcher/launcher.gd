@@ -187,6 +187,11 @@ func _notification(what: int) -> void:
 		if _overlay.is_visible_in_tree():
 			_hide_overlay()
 			_hold_quit_for_this_back()
+		elif _update_button.is_visible_in_tree() and UpdateService.is_busy():
+			# A check or download under way is the innermost thing open: Back stops
+			# it, as the bar's Cancel does (#25), and the next Back quits.
+			UpdateService.cancel()
+			_hold_quit_for_this_back()
 		else:
 			back_requested.emit()
 		return
@@ -470,8 +475,12 @@ func _on_quit_pressed() -> void:
 
 
 ## The update button is the single entry point: it checks, then downloads, then
-## restarts, depending on where the updater currently is.
+## restarts, depending on where the updater currently is -- and while it is busy,
+## cancels.
 func _on_update_pressed() -> void:
+	if UpdateService.is_busy():
+		UpdateService.cancel()
+		return
 	match UpdateService.state:
 		UpdateService.State.CONTENT_READY, UpdateService.State.BINARY_READY:
 			await _prompt_update()
@@ -512,13 +521,7 @@ func _explain_install_handoff() -> void:
 func _refresh_update_ui() -> void:
 	_status_label.text = UpdateService.status_text()
 
-	var busy := UpdateService.state in [
-		UpdateService.State.CHECKING,
-		UpdateService.State.DOWNLOADING,
-		UpdateService.State.VERIFYING,
-	]
 	_progress.visible = UpdateService.state == UpdateService.State.DOWNLOADING
-	_update_button.disabled = busy
 
 	# A fresh install that has never reached the network has no notes to show,
 	# and a button that only opens "nothing recorded yet" is worse than no button.
@@ -533,6 +536,12 @@ func _refresh_update_ui() -> void:
 	# scene properties to keep in step.
 	_notes_button.text = tr("What's new")
 
+	if UpdateService.is_busy():
+		# Never a disabled button with no way out: busy, it stops the check or
+		# download (#25). The status line says what is under way.
+		_update_button.text = tr("Cancel")
+		return
+
 	match UpdateService.state:
 		UpdateService.State.BINARY_READY:
 			_update_button.text = tr("Update app")
@@ -542,10 +551,6 @@ func _refresh_update_ui() -> void:
 			_update_button.text = tr("Install")
 		UpdateService.State.RESTART_REQUIRED:
 			_update_button.text = tr("Restart")
-		UpdateService.State.CHECKING:
-			_update_button.text = tr("Checking…")
-		UpdateService.State.DOWNLOADING, UpdateService.State.VERIFYING:
-			_update_button.text = tr("Working…")
 		UpdateService.State.UNAVAILABLE when UpdateService.manual_download_needed:
 			_update_button.text = tr("Open releases page")
 		_:

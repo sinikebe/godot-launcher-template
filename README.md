@@ -362,9 +362,12 @@ game downloads the new `.exe`, closes, and reopens on it, so the `.exe` has to
 sit in a folder the player can write to: anywhere else, such as Program Files,
 the game closes and stays on the old version. On Linux and macOS, which get no
 app build from this pipeline, the bar says the release needs a new build and
-the button reads **Open releases page** instead of **Update app**. **What's
-new** shows the notes of the last 20 releases, offline too. Errors show in the
-bar, and the button checks again.
+the button reads **Open releases page** instead of **Update app**. While the
+bar checks or downloads, its button reads **Cancel**: a cancelled check says so,
+and a cancelled download goes back to its offer, to be taken up later. Play
+works throughout, and a download carries on into the game unless cancelled.
+**What's new** shows the notes of the last 20 releases, offline too. Errors
+show in the bar, and the button checks again.
 
 A web or iOS build has nothing to fetch, and says `No content pack published
 for <platform>.` whenever a newer release exists, or, after a `binary_version`
@@ -385,20 +388,22 @@ if OS.has_feature("web"):
 By default, Godot quits the app whenever Back is pressed. The launcher changes
 that in two places only:
 
-- **On the launcher's screen**, Back closes an open launcher dialog, and
-  otherwise quits, as `application/config/quit_on_go_back` in your
+- **On the launcher's screen**, Back closes an open launcher dialog, or else
+  cancels an update check or download under way, and otherwise quits, as
+  `application/config/quit_on_go_back` in your
   `project.godot` says (on unless you turned it off). If your
   `_launcher_opening()` adds a panel of its own, or your main scene is a scene
   of yours around the launcher, turn the quit off —
   `launcher.get_tree().quit_on_go_back = false` from `_launcher_opening()`, or
   `get_tree().quit_on_go_back = false` from that scene's `_ready()`, which runs
   after the launcher's — and handle Back by connecting the launcher's
-  `back_requested` signal. It is emitted only for a Back that none of the
-  launcher's dialogs took, so the Back that closes one never reaches your code
+  `back_requested` signal. It is emitted only for a Back that neither closed a
+  launcher dialog nor cancelled an update, so that Back never reaches your code
   as well. Nothing then quits on Back unless your code does. Turn it off once,
   as above, rather than switching it as your panels open and close: for the frame
-  in which Back closes one of its dialogs, the launcher turns the quit off and
-  then on again, which undoes a switch your code makes in that same frame.
+  in which Back closes one of its dialogs or cancels an update, the launcher
+  turns the quit off and then on again, which undoes a switch your code makes in
+  that same frame.
 - **In your game**, Back does nothing until you handle it, so one stray tap no
   longer ends a run. The launcher turns the quit off as it leaves the scene
   tree. To pause, open a menu or return to the launcher, handle the
