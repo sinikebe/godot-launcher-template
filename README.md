@@ -361,6 +361,11 @@ Inside the template and in a hand-vendored copy there is no synced commit, so
 the second line is just `launcher 2.1.0`. It is the first thing worth asking for
 in a launcher bug report.
 
+The sync writes the hash into `addons/launcher/launcher_version.gd` from its
+record, `addons/launcher/.launcher-sync.json`, on every run. A synced game
+whose second line has no hash is missing that stamp, and its next sync run, even
+one with nothing new to sync, puts it back.
+
 `VERSION` is hand-maintained, and `ci/check_launcher_version.sh` fails a pull
 request that changes `addons/launcher/` without moving it — label the pull
 request `no-launcher-bump` for a change that genuinely does not warrant one.
