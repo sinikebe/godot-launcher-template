@@ -253,9 +253,17 @@ manifest, and the update check settles on `UNAVAILABLE` with
 `No content pack published for <key>.`
 
 A Web export needs no pack, since it updates by being re-served — but the launcher
-does not know that, and will show that message from the first release onward. Turn
-the bar off in a web build's config (`show_update_bar = false`,
-`check_on_launch = false`) until the launcher learns to skip the check there.
+does not know that, and will show that message from the first release onward.
+There is one config for every platform, so turn `show_update_bar` and
+`check_on_launch` off for a web build from `_launcher_opening()`, which runs
+before the launcher reads them, until the launcher learns to skip the check
+there:
+
+```gdscript
+if OS.has_feature("web"):
+    BuildInfo.config.check_on_launch = false
+    BuildInfo.config.show_update_bar = false
+```
 
 ### What a binary update cannot do off Android and Windows
 

@@ -31,7 +31,8 @@ cd your-game
 
 ## 2. Name your game
 
-One command sets up everything:
+One command sets the name, the package id and the repository the app checks
+for updates:
 
 ```bash
 bash ci/new_game.sh "Deep Cavern" com.yourname.deepcavern
