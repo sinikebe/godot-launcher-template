@@ -14,8 +14,8 @@ extends Control
 ## modifying the launcher.
 signal custom_button_pressed(label: String)
 
-## Emitted when Play is pressed, before it changes scene. With no play scene
-## configured, connecting this takes the Play action over entirely.
+## Emitted when Play is pressed, before it fades out and changes scene. With no
+## play scene configured, connecting this takes the Play action over entirely.
 signal play_requested()
 
 ## Emitted when Back reaches the launcher's screen and the launcher did not take
@@ -81,8 +81,16 @@ static var _registered_catalogs: Dictionary = {}
 @onready var _overlay_primary: Button = %OverlayPrimary
 @onready var _overlay_secondary: Button = %OverlaySecondary
 
+## LauncherConfig.play_fade_seconds on an app build whose config predates it.
+## Keep it the same as that field's default.
+const DEFAULT_PLAY_FADE_SECONDS := 0.3
+const LauncherVeil := preload("res://addons/launcher/launcher_veil.gd")
+
 var _config: LauncherConfig
 var _menu_box: BoxContainer
+## Set once Play has started to leave for the game, so a second press, from the
+## keyboard or a gamepad during the fade, does not start it again.
+var _leaving := false
 var _first_button: Button = null
 ## Guards the re-entrancy between _apply_layout() and minimum_size_changed.
 var _laying_out := false
@@ -183,6 +191,10 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		# Before _ready() there is no dialog to close, and _overlay is not set yet.
 		if not _screen_built:
+			return
+		if _leaving:
+			# Play is already on its way into the game; Back neither quits nor stops it.
+			_hold_quit_for_this_back()
 			return
 		# In the tree, not just visible: a launcher kept hidden beside the game
 		# can hold a dialog the player cannot see, which must not eat their Back.
@@ -453,17 +465,90 @@ func _text_align_for(h_align: int) -> HorizontalAlignment:
 # ---------------------------------------------------------------------------
 
 func _on_play_pressed() -> void:
+	if _leaving:
+		return
 	# Asked before emitting: a one-shot connection -- which is what
 	# `await launcher.play_requested` makes -- is dropped during the emission.
 	var answered := not play_requested.get_connections().is_empty()
 	play_requested.emit()
+	if not is_inside_tree():
+		# A listener has already left for the game itself, changing scene from
+		# play_requested; there is no launcher left to fade or to change from.
+		return
 	if _config.play_scene.is_empty():
 		# A game listening to play_requested has taken Play over; only Play that
 		# nothing answers explains itself.
 		if not answered:
 			_explain_play()
 		return
-	get_tree().change_scene_to_file(_config.play_scene)
+	_leaving = true
+	await _fade_into(_config.play_scene, _play_fade_seconds())
+
+
+## LauncherConfig.play_fade_seconds, read by name: the config is the installed
+## app build's, and one from before the field has no such member.
+func _play_fade_seconds() -> float:
+	if "play_fade_seconds" in _config:
+		return maxf(0.0, float(_config.get("play_fade_seconds")))
+	return DEFAULT_PLAY_FADE_SECONDS
+
+
+## Fades the launcher out to background_color, loads [param scene] under that
+## colour, then fades the colour away over the game (#27). A cut from the
+## launcher's moving background straight to the game's first frame is the first
+## thing a player sees of the game proper.
+##
+## The veil is the launcher's own child while it fades in, so a game that changes
+## scene later, during the fade, takes it down with the launcher; one that changes
+## scene straight from play_requested never gets one (see _on_play_pressed()).
+## Only once the fade is done does it move to the root, where it outlives the
+## scene change: the frame between the two scenes then shows the veil rather than
+## the project's clear colour, which is the game's own setting and may be any
+## colour.
+func _fade_into(scene: String, seconds: float) -> void:
+	if seconds <= 0.0:
+		_change_to(scene)
+		return
+	var layer := CanvasLayer.new()
+	layer.layer = 128
+	# A game that pauses its tree as it starts must not leave the veil up.
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	var veil := LauncherVeil.new()
+	veil.color = Color(_config.background_color, 0.0)
+	veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# The veil takes the mouse, and the keyboard's focus with nowhere to move it:
+	# with nothing focused, Tab would focus the menu again for Enter to press.
+	veil.mouse_filter = Control.MOUSE_FILTER_STOP
+	veil.focus_mode = Control.FOCUS_ALL
+	for side: Side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
+		veil.set_focus_neighbor(side, ^".")
+	veil.focus_next = ^"."
+	veil.focus_previous = ^"."
+	layer.add_child(veil)
+	add_child(layer)
+	veil.grab_focus()
+
+	# In real time: a game that came back here with Engine.time_scale at 0 would
+	# otherwise never get past the fade.
+	var fade_out := create_tween().set_ignore_time_scale()
+	fade_out.tween_property(veil, "color:a", 1.0, seconds)
+	await fade_out.finished
+
+	layer.reparent(get_tree().root)
+	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	veil.focus_mode = Control.FOCUS_NONE
+	veil.lift(seconds)
+	_change_to(scene)
+
+
+## Loads [param scene], or, when it cannot be loaded, leaves the launcher usable:
+## the error is in the log, and Play can be pressed again.
+func _change_to(scene: String) -> void:
+	if get_tree().change_scene_to_file(scene) != OK:
+		_leaving = false
+		# Focus left with the veil; a keyboard or gamepad needs somewhere to start.
+		if _first_button != null:
+			_first_button.grab_focus()
 
 
 func _explain_play() -> void:
