@@ -365,7 +365,10 @@ app build from this pipeline, the bar says the release needs a new build and
 the button reads **Open releases page** instead of **Update app**. While the
 bar checks or downloads, its button reads **Cancel**: a cancelled check says so,
 and a cancelled download goes back to its offer, to be taken up later. Play
-works throughout, and a download carries on into the game unless cancelled.
+works throughout, and a download carries on into the game unless cancelled. It
+moves only while the app runs, though: in the background it waits, and if the
+server gives up on the connection meanwhile, the download fails and starts
+again from the beginning when the player retries.
 **What's new** shows the notes of the last 20 releases, offline too. Errors
 show in the bar, and the button checks again.
 
@@ -397,10 +400,10 @@ that in two places only:
   `launcher.get_tree().quit_on_go_back = false` from `_launcher_opening()`, or
   `get_tree().quit_on_go_back = false` from that scene's `_ready()`, which runs
   after the launcher's — and handle Back by connecting the launcher's
-  `back_requested` signal. It is emitted for every Back that did not close a
-  launcher dialog, so the Back that closes one never reaches your code as well;
-  with the quit off, that includes a Back during an update, which may be meant
-  for your panel. `UpdateService.cancel()` stops the update if you want Back to.
+  `back_requested` signal. With the quit off, it is emitted for every Back that
+  did not close a launcher dialog, one during an update included, which may be
+  meant for your panel; the Back that closes a dialog never reaches your code as
+  well. `UpdateService.cancel()` stops the update if you want Back to.
   Nothing then quits on Back unless your code does. Turn it off once,
   as above, rather than switching it as your panels open and close: for the frame
   in which Back closes one of its dialogs or cancels an update, the launcher

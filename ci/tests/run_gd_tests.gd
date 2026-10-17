@@ -865,6 +865,23 @@ func _test_cancel() -> void:
 			"a request %s gets its own timeout" % ("for a file" if not download_to.is_empty() else "for the manifest"))
 		made.free()
 
+	# A download that fails is over by the time anyone hears of it: the bar asks
+	# is_busy() on state_changed, and a true there leaves it offering Cancel.
+	var heard: Array = []
+	var listen := func(_s: int) -> void: heard.append(_us.is_busy())
+	_us.state_changed.connect(listen)
+	for ending: String in ["fail", "finish"]:
+		heard.clear()
+		_us._busy = true
+		_us._set_state(_us.State.DOWNLOADING)
+		heard.clear()
+		if ending == "fail":
+			_us._fail("x")
+		else:
+			_us._finish(_us.State.CONTENT_READY, "")
+		eq(heard, [false], "a download that ends through _%s() is no longer busy when it says so" % ending)
+	_us.state_changed.disconnect(listen)
+
 	# Cancel stops the transfer under way and frees it.
 	var http := HTTPRequest.new()
 	_us.add_child(http)

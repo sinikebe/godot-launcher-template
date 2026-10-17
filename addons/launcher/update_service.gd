@@ -229,6 +229,9 @@ func check_for_updates() -> State:
 			tr("update_repo still points at the launcher template. Set it to this game's own repository."))
 	_busy = true
 	_set_state(State.CHECKING)
+	if _settled_serial == serial:
+		# Cancelled by a listener of that state change.
+		return state
 	last_error = ""
 
 	# GitHub's CDN caches release download paths and ignores Cache-Control on them,
@@ -356,7 +359,7 @@ func is_busy() -> bool:
 ## when the updater is not busy.
 ##
 ## The transfer stops at once, however slow or silent the server: requests are
-## not threaded (see _request()), so cancel_request() has no read to wait for.
+## not threaded (see _new_request()), so cancel_request() has no read to wait for.
 func cancel() -> State:
 	if not is_busy():
 		return state
@@ -524,6 +527,9 @@ func _download_verified(url: String, dest: String) -> State:
 	var part := _part_path(dest)
 	_download_part = part
 	_set_state(State.DOWNLOADING)
+	if generation != _generation:
+		# Cancelled by a listener of that state change, before anything started.
+		return state
 	var response := await _request(url, part)
 	if generation != _generation:
 		# Cancelled while it ran. _request() has removed what it fetched.
@@ -533,6 +539,9 @@ func _download_verified(url: String, dest: String) -> State:
 		return _fail(response.error)
 
 	_set_state(State.VERIFYING)
+	if generation != _generation:
+		# Cancelled by a listener of that state change, which removed the file.
+		return state
 	var expected := str(pending_artifact.get("sha256", "")).strip_edges().to_lower()
 	if expected.is_empty():
 		# Refuse to install something we cannot authenticate.
@@ -579,8 +588,10 @@ func _new_request(download_to: String) -> HTTPRequest:
 	# cancel_request() -- the player's Cancel, the timeout, freeing the node on
 	# quit -- waits on the main thread for the read under way, which a slow or
 	# silent server can make a minute or forever (#25, #33). Unthreaded, the
-	# request is polled each frame and stops the moment it is told to. A large
-	# chunk keeps a frame's read from capping the download speed, and processing
+	# request is polled each frame and stops the moment it is told to. The price
+	# is that it moves only while the main loop runs: a download pauses while the
+	# app is in the background or a frame is held up. A frame reads at most one
+	# chunk, so the large chunk raises that cap to 1 MiB a frame; processing
 	# always keeps a game that pauses its tree from pausing a download.
 	http.use_threads = false
 	http.download_chunk_size = 1 << 20
@@ -780,6 +791,9 @@ func _on_check_overdue(serial: int) -> void:
 
 
 func _fail(message: String) -> State:
+	# Before the state changes: whoever hears of it asks is_busy(), which must
+	# already say the work is over.
+	_busy = false
 	_settled_serial = _check_serial
 	last_error = message
 	push_warning("[UpdateService] " + message)
@@ -789,6 +803,7 @@ func _fail(message: String) -> State:
 
 
 func _finish(next: State, message: String) -> State:
+	_busy = false
 	_settled_serial = _check_serial
 	last_error = message
 	_set_state(next)
