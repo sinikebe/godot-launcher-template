@@ -14,13 +14,18 @@ will not replace an app across a signature change.
 Usually it means one of:
 
 - You had no signing secrets, so CI used a throwaway debug key — and the build
-  cache holding it expired (7 days without a build), so a new one was generated.
+  cache holding it expired (7 days without a release run — pull-request builds
+  do not touch it), so a new one was generated.
 - You added a real keystore after already installing a debug-signed build.
 - You replaced your keystore with a different one.
 
 **Fix:** uninstall the old copy, install the new one. Then
 [set up a real keystore](GETTING-STARTED.md#android-set-up-signing-before-you-share-it)
 so it cannot happen again, and back it up.
+
+It also happens when the APK is *older* than the installed copy, such as an
+earlier release installed by hand: Android refuses a lower `versionCode`, which
+is the content version. Install the newest one instead.
 
 ### The update downloads, but nothing changed
 
@@ -33,6 +38,12 @@ those live outside `res://` content.
 **Fix:** bump `binary_version` in `version.json` and push again. Players get a
 new APK/EXE that actually contains the change.
 
+Or what you changed belongs to the installed app even with a pack mounted:
+`version_name` (the corner stamp and a tagline's `{version}` keep the app
+build's; only `content` moves), the launcher line under it, or a
+`LauncherConfig` field newer than that app build. See [Version
+stamp](../README.md#version-stamp).
+
 ### The app never notices an update
 
 Check, in order:
@@ -44,13 +55,21 @@ Check, in order:
 3. The installed build is genuinely older. A build reports its versions bottom
    right; compare with the release.
 4. Open `https://github.com/<owner>/<repo>/releases/latest/download/manifest.json`
-   in a browser. If that 404s, the app cannot see anything either.
+   in a browser. If that 404s, the app cannot see anything either; the bar then
+   says `No release has been published yet.` A private repository 404s too.
+
+A branch build polls `…/releases/download/branch-<name>/manifest.json` instead,
+and its release is a prerelease, never **Latest**. With `check_on_launch` off,
+nothing checks until the player presses **Check for updates**.
 
 ### It offers an update forever, even right after updating
 
 You are running from the Godot editor, or a locally exported build. Those report
 version `0`, so every release looks newer. That is deliberate — it makes the
-update path easy to exercise. Installed CI builds behave correctly.
+update path easy to exercise. Installed CI builds behave correctly. On Linux or
+macOS the bar says instead `Version <x> needs a new build for linux. Open the
+releases page to download it.`, for the same reason: the editor's
+`binary_version` is 0.
 
 ### A player cannot reach "Update now" or "Download"
 
@@ -68,10 +87,30 @@ update. Granting it to your browser only covers APKs your browser downloads.
 ### Download fails with a checksum mismatch
 
 The app refuses anything whose SHA-256 does not match the manifest, and discards
-it. Press the button again — a truncated download fixes itself on retry.
+it. Press **Check for updates**, then download it again — a truncated download
+fixes itself on retry.
 
 If it repeats, the release is genuinely inconsistent: re-run the Release
 workflow so the manifest and the artifacts are rebuilt together.
+
+### On Windows the game closes for an update and does not come back
+
+The helper could not write over the `.exe`: it sits in a folder the player
+cannot write to, such as Program Files, or the game took more than a minute to
+close. **Fix:** keep the `.exe` somewhere the player owns, open it, and update
+again.
+
+### The bar says "The connection timed out." or "Secure connection failed."
+
+The manifest has 30 seconds to arrive and a download 30 minutes, with no resume.
+A slow connection can run out of either; press **Check for updates** to try
+again. "Secure connection failed." is often a device clock that is far off,
+which makes every certificate look invalid.
+
+### The bar says "update_repo still points at the launcher template"
+
+The game's `launcher_config.tres` still has the template's `update_repo`. Set it
+to your game's own repository, or to the releases repository it publishes to.
 
 ---
 
@@ -101,6 +140,8 @@ would make the publish fail at the end. The error says which:
   repository it runs in.
 - **A classic personal access token.** It reaches every repository you can.
   Use a fine-grained token limited to the releases repository.
+- **Not an `owner/name`.** `RELEASE_REPO` holds something else, such as a URL
+  or a stray space.
 - **It does not exist, or is not visible.** Usually a typo in `RELEASE_REPO`.
 - **It is private.** Players' apps download with no token. Make it public; it
   holds only releases.
@@ -129,22 +170,73 @@ textures/vram_compression/import_etc2_astc=true
 A game made from the template has it. A game that added the launcher by hand
 gets it from the README's existing-game steps.
 
-### The build works but the APK is unsigned
+If it fails while signing (the log mentions `apksigner`), the keystore did not
+open with your secrets: `ANDROID_KEYSTORE_PASSWORD` is not its password, or
+`ANDROID_KEY_ALIAS` is not its alias, or is unset, in which case CI asks for
+`androiddebugkey`. `keytool -list -keystore release.keystore` shows the alias.
 
-No keystore was available and `keytool` failed. Check the job summary: it says
-plainly when it fell back to a debug key.
+### The Release workflow fails at "Resolve signing key"
 
-### Release notes say "No previous release found"
+The log says `ANDROID_KEYSTORE_BASE64 did not decode to a usable keystore.` The
+secret is not the base64 of your keystore: it is empty, cut short, or encoded
+twice. Set it again from the file:
 
-Expected on your first release. The notes come from commits since the commit
-the latest release's manifest records, or else since the newest `v<name>+<n>`
-tag. With neither yet, they describe the whole history, capped at 20 lines.
+```bash
+base64 < release.keystore | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64
+```
+
+### A workflow fails at "Install Godot" with "The cached … does not …"
+
+The cached editor or export templates no longer match what was installed. The
+check stops on purpose, and since a cache is never saved over a key it matched,
+it fails the same way on every run until the cache is cleared.
+
+**Fix:** delete the `godot-4.7-stable-linux-verified-v1` entry under *Actions →
+Caches* (or `gh cache delete godot-4.7-stable-linux-verified-v1`), then run it
+again. On a self-hosted runner, delete `~/godot` and
+`~/.local/share/godot/export_templates/4.7.stable` instead.
+
+### A branch push fails at "Stamp build version"
+
+The log says `RELEASE_BRANCH is not a usable branch name for a rolling release.`
+A branch that publishes a prerelease becomes a tag suffix and a URL segment, so
+its name takes only letters, digits, `.`, `_` and `-`, starting with a letter or
+digit, with no `..`, and not ending in `.` or `.lock`. A name like `feature/x`
+cannot. Rename the branch, or take it out of the list in `release.yml`.
+
+### A build warns that it "checks … for updates, but is published to …"
+
+The build's `update_repo` names one repository and the release goes to another,
+so whoever installs it never sees the releases after it. Usually a `release.yml`
+from before `RELEASE_REPO` existed, which ignores the variable; copy the current
+workflows. It is expected once, while moving a shipped game to a releases
+repository; see [Publishing from a private
+repository](UPDATES.md#publishing-from-a-private-repository).
+
+### The release says the APK is signed with a CI debug key
+
+No `ANDROID_KEYSTORE_BASE64` secret was set, so CI signed with its cached debug
+key; the job summary and the release notes both say so. It installs and updates
+until that cache is evicted. [Set up a real
+keystore](GETTING-STARTED.md#android-set-up-signing-before-you-share-it) before
+anyone else installs it.
+
+### The patch-notes step says "No previous release found"
+
+Expected on your first release: the *Collect patch notes* step found neither a
+latest release whose manifest names a commit in this history nor a
+`v<name>+<n>` tag, so the notes describe the whole history, capped at 20 lines.
+On a later release it means the latest release's manifest could not be read.
+With `RELEASE_REPO` set there is no tag to fall back on either, because tags are
+created in the releases repository, so check `RELEASE_TOKEN`.
 
 ### My change is missing from the patch notes
 
-Subjects starting with `chore`, `ci:`, `bump `, `wip` or `revert` are filtered
-out, and merge commits are dropped. Write commit subjects on `main` as if a
-player will read them — one will.
+Merge commits are dropped, and so are subjects starting, in any case, with
+`chore`, `ci:`, `bump `, `wip`, `merge ` or `revert ` — so *Wipe old saves* and
+*Merge the two inventory screens* go too. A release also lists at most 20 lines:
+past that, the oldest are folded into "…and N more changes." Write commit
+subjects on `main` as if a player will read them — one will.
 
 ---
 
@@ -158,8 +250,9 @@ Two possibilities:
    the template. The log says `Already on <sha>; nothing to do.`
 2. **Your repository forbids it.** PR creation needs
    *Settings → Actions → General → Allow GitHub Actions to create and approve
-   pull requests*. The branch is still pushed; the run summary links a compare
-   URL so you can open the PR yourself.
+   pull requests*. The run ends with `launcher-sync is pushed, but opening the
+   pull request failed.`; the branch is pushed, and the run summary links a
+   compare URL so you can open the PR yourself.
 
 ### The sync PR has no CI checks on it
 
@@ -167,8 +260,9 @@ Expected. A pull request opened with the built-in `GITHUB_TOKEN` cannot trigger
 other workflows — GitHub blocks that to prevent loops. The sync job imports and
 boots your project itself before opening the PR, which covers the realistic
 breakage. To run your full CI on it as well, close the pull request and reopen
-it. A personal access token also works, but only by editing `sync-launcher.yml`,
-which the sync then reports as changed upstream on every run.
+it, and again after each sync run that updates it. A personal access token also
+works, but only by editing `sync-launcher.yml`, which the sync then reports as
+changed upstream on every run.
 
 ### The sync says my workflows have drifted
 
@@ -189,6 +283,9 @@ machine](UPDATES.md#running-the-workflows-on-your-own-machine).
 rm -rf /tmp/lt && git clone --depth 1 https://github.com/sinikebe/godot-launcher-template /tmp/lt
 cp /tmp/lt/.github/workflows/*.yml .github/workflows/
 ```
+
+If the run also warns that upstream workflow filenames "are not plain names",
+copy nothing: the template repository may have been tampered with.
 
 ### My change to the launcher disappeared
 
@@ -212,5 +309,7 @@ v0.2.0  ·  bin 2  ·  content 13  ·  6721df5d
 launcher 2.7.1  ·  b0f419d7
 ```
 
-It says which game build and which launcher revision you are on, which is
-usually the first thing anyone needs to know.
+It says which app build and content version you are on, and which launcher
+that app build shipped with. A content update can bring newer launcher code
+without changing the second line, so the `content` number on the first line
+matters too.
