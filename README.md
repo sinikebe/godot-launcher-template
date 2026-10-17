@@ -686,8 +686,8 @@ copying.
 Syncing runs this repository's code in your game. Before you have reviewed
 anything, the sync's check job runs the new `ci/` scripts, the Godot they
 install and the launcher itself. That job can read your repository, a private
-game's source included, but it holds no secret and cannot push, publish or open
-anything. The job that opens the pull request runs none of that code. Once you
+game's source included, but it holds none of your secrets and cannot push,
+publish or open anything. The job that opens the pull request runs none of that code. Once you
 merge, the same code runs in your releases with your signing key and
 `RELEASE_TOKEN`, and the launcher runs on every player's device.
 
