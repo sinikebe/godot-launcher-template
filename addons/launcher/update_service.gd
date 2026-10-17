@@ -39,6 +39,12 @@ const MANIFEST_TIMEOUT := 30.0
 ## download forever. `timeout` does not bound that case well anyway -- it waits
 ## on the peer rather than the clock in threaded mode. See issue #33.
 const DOWNLOAD_TIMEOUT := 1800.0
+## How long a check may run before it is given up on. Longer than
+## MANIFEST_TIMEOUT, so a request that times out ends the check first, and this
+## only ends a check that stopped partway through; see check_for_updates(). A
+## silent server is not one: HTTPRequest's timeout can hold the main thread until
+## the server answers (#33), and no timer fires meanwhile.
+const CHECK_DEADLINE := MANIFEST_TIMEOUT + 15.0
 const SUPPORTED_SCHEMA := 1
 ## Platforms with no automatic binary update: no CI export, no in-place swap.
 const MANUAL_BINARY_PLATFORMS: Array[String] = ["linux", "macos"]
@@ -79,6 +85,12 @@ var manual_download_needed: bool = false
 
 var _busy := false
 var _active_request: HTTPRequest = null
+## Counts checks, so the deadline set for one cannot end the next.
+var _check_serial := 0
+## The serial of the check that last reached _finish() or _fail().
+var _settled_serial := 0
+## The latest check's deadline.
+var _check_deadline: SceneTreeTimer = null
 ## Set once an APK has been downloaded and its checksum verified, so a retry
 ## after granting the install permission does not download it a second time.
 var _verified_apk_path := ""
@@ -188,6 +200,14 @@ static func _accepts(object: Object, method: String, argc: int) -> bool:
 func check_for_updates() -> State:
 	if _busy:
 		return state
+	# A script error ends this function without reaching _finish() or _fail(), and
+	# GDScript cannot catch one. In practice it is code from a content pack calling
+	# something the installed binary lacks (#24), and it left the bar on "Checking
+	# for updates…" with its button disabled until the app was reinstalled. The
+	# deadline is a timer outside this function, so it fires whatever happens here.
+	_check_serial += 1
+	var serial := _check_serial
+	_check_deadline = _arm_check_deadline(serial)
 	manual_download_needed = false
 	# Reports a bad branch stamp as well as a missing update_repo. updates_enabled()
 	# stays keyed on update_repo alone, so a misconfigured branch surfaces as an
@@ -218,6 +238,16 @@ func check_for_updates() -> State:
 	var url := "%s?ts=%d" % [
 		_manifest_url(branch), Time.get_unix_time_from_system()]
 	var response := await _request(url, "")
+	return _settle_check(serial, response)
+
+
+## What check [param serial] makes of the manifest request's [param response].
+func _settle_check(serial: int, response: Dictionary) -> State:
+	if serial != _check_serial or _settled_serial == serial:
+		# Given up on by its deadline. The bar has said so and _busy is released, so
+		# a newer check or a download may own the state now. Trying again is the
+		# way back, not this late answer.
+		return state
 	_busy = false
 
 	if not response.ok:
@@ -521,8 +551,11 @@ func _request(url: String, download_to: String) -> Dictionary:
 
 
 func _teardown_request(http: HTTPRequest) -> void:
-	_active_request = null
-	set_process(false)
+	# A check given up on by its deadline can still finish later, during a newer
+	# request. It must not stop that one's progress reports.
+	if _active_request == http:
+		_active_request = null
+		set_process(false)
 	http.queue_free()
 
 
@@ -636,7 +669,31 @@ func _set_state(next: State) -> void:
 	state_changed.emit(state)
 
 
+## Starts the deadline for check [param serial]. From the main loop rather than
+## get_tree(), which is null until this node is inside the tree: arming the
+## deadline must not be what fails.
+func _arm_check_deadline(serial: int) -> SceneTreeTimer:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	var timer := tree.create_timer(CHECK_DEADLINE)
+	timer.timeout.connect(_on_check_overdue.bind(serial))
+	return timer
+
+
+## Ends a check its deadline found still on CHECKING. Reads nothing but this
+## script's own state, so whatever stopped the check cannot stop this as well.
+func _on_check_overdue(serial: int) -> void:
+	# Only a check stuck on CHECKING. One that died before getting there left the
+	# state as it was, and that state may since have become a download.
+	if serial != _check_serial or _settled_serial == serial or state != State.CHECKING:
+		return
+	_busy = false
+	_fail(tr("The update check did not finish. Try again, and if this keeps happening, reinstall the app."))
+
+
 func _fail(message: String) -> State:
+	_settled_serial = _check_serial
 	last_error = message
 	push_warning("[UpdateService] " + message)
 	_set_state(State.FAILED)
@@ -645,6 +702,7 @@ func _fail(message: String) -> State:
 
 
 func _finish(next: State, message: String) -> State:
+	_settled_serial = _check_serial
 	last_error = message
 	_set_state(next)
 	check_completed.emit(state)
