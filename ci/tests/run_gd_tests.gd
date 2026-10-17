@@ -855,21 +855,25 @@ func _test_cancel() -> void:
 	check(not FileAccess.file_exists(part), "cancelling after the transfer removes its staged file")
 	check(_us._part_path("user://content/content-9.pck") != part, "after a cancel, a new attempt stages under another name")
 
-	# A transfer still moving is cancelled outright; a quiet one is left to end.
-	for moving: bool in [true, false]:
-		var http := HTTPRequest.new()
-		_us.add_child(http)
-		_us._active_request = http
-		_us._moved_msec = Time.get_ticks_msec() if moving else -1
-		_us._busy = true
-		_us._set_state(_us.State.DOWNLOADING)
-		eq(_us._transfer_is_moving(), moving, "a transfer that %s is %s" % [
-			"just received bytes" if moving else "has received nothing", "moving" if moving else "not moving"])
-		_us.cancel()
-		check(_us._active_request == null, "after a cancel, no request is the active one")
-		eq(http.is_queued_for_deletion(), moving, "a moving transfer is freed at once; a quiet one is kept until it ends")
-		if not moving:
-			http.queue_free()
+	# Requests are not threaded: a threaded one's cancel_request() waits on the main
+	# thread for a read that a slow or silent server can make last forever (#33).
+	for download_to: String in ["", "user://staging/x.part"]:
+		var made: HTTPRequest = _us._new_request(download_to)
+		check(not made.use_threads, "requests are not threaded, so stopping one never waits on a read")
+		check(made.process_mode == Node.PROCESS_MODE_ALWAYS, "a game that pauses its tree does not pause a download")
+		eq(made.timeout, _us.DOWNLOAD_TIMEOUT if not download_to.is_empty() else _us.MANIFEST_TIMEOUT,
+			"a request %s gets its own timeout" % ("for a file" if not download_to.is_empty() else "for the manifest"))
+		made.free()
+
+	# Cancel stops the transfer under way and frees it.
+	var http := HTTPRequest.new()
+	_us.add_child(http)
+	_us._active_request = http
+	_us._busy = true
+	_us._set_state(_us.State.DOWNLOADING)
+	_us.cancel()
+	check(_us._active_request == null, "after a cancel, no request is the active one")
+	check(http.is_queued_for_deletion(), "a cancelled transfer is freed at once")
 	_us.pending_kind = ""
 	_us.pending_artifact = {}
 	_us._finish(_us.State.IDLE, "")

@@ -51,13 +51,17 @@ still runs when the check's own code is broken.
 
 **Busy is never a dead end.** While `UpdateService.is_busy()`, the update
 button reads Cancel and calls `cancel()`, and Back on the launcher's screen does
-the same (#25). `cancel()` calls `cancel_request()` only on a transfer that
-received bytes in the last `CANCEL_LIVE_MSEC`: on a silent server it holds the
-main thread until the server answers (#33). A quiet transfer is left to end by
-itself, so everything that awaits one checks `_generation` when it resumes and,
-finding it changed, returns without touching state. Downloads land in a
-per-attempt `.part` (`_part_path()`), so a transfer left running never shares a
-file with a newer attempt.
+the same while the quit is on (#25). `cancel()` stops the transfer with
+`cancel_request()` and lands on FAILED or the offer itself, because
+`request_completed` never fires after it.
+
+**Requests are not threaded.** A threaded `HTTPRequest` reads in blocking
+chunks, and `cancel_request()` -- from Cancel, the timeout, or freeing the node
+on quit -- waits on the main thread for the read under way: a minute at 1 KB/s,
+forever on a silent server (#33). Keep `use_threads = false`. Code that awaits a
+transfer still checks `_generation` when it resumes, and downloads land in a
+per-attempt `.part` (`_part_path()`), for an end already on its way when
+`cancel()` ran.
 
 **`HTTPRequest.timeout` is total wall-clock, not idle.** The internal timer is
 reset only in `request()`. A timeout sized for a small JSON fetch will kill a

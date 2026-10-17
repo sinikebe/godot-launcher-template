@@ -388,18 +388,20 @@ if OS.has_feature("web"):
 By default, Godot quits the app whenever Back is pressed. The launcher changes
 that in two places only:
 
-- **On the launcher's screen**, Back closes an open launcher dialog, or else
-  cancels an update check or download under way, and otherwise quits, as
-  `application/config/quit_on_go_back` in your
-  `project.godot` says (on unless you turned it off). If your
+- **On the launcher's screen**, Back closes an open launcher dialog, and
+  otherwise quits, as `application/config/quit_on_go_back` in your
+  `project.godot` says (on unless you turned it off). While an update check or
+  download is under way, the Back that would quit cancels it instead. If your
   `_launcher_opening()` adds a panel of its own, or your main scene is a scene
   of yours around the launcher, turn the quit off —
   `launcher.get_tree().quit_on_go_back = false` from `_launcher_opening()`, or
   `get_tree().quit_on_go_back = false` from that scene's `_ready()`, which runs
   after the launcher's — and handle Back by connecting the launcher's
-  `back_requested` signal. It is emitted only for a Back that neither closed a
-  launcher dialog nor cancelled an update, so that Back never reaches your code
-  as well. Nothing then quits on Back unless your code does. Turn it off once,
+  `back_requested` signal. It is emitted for every Back that did not close a
+  launcher dialog, so the Back that closes one never reaches your code as well;
+  with the quit off, that includes a Back during an update, which may be meant
+  for your panel. `UpdateService.cancel()` stops the update if you want Back to.
+  Nothing then quits on Back unless your code does. Turn it off once,
   as above, rather than switching it as your panels open and close: for the frame
   in which Back closes one of its dialogs or cancels an update, the launcher
   turns the quit off and then on again, which undoes a switch your code makes in
@@ -572,9 +574,9 @@ Things to watch:
 - **`UpdateService`**, an autoload. It ships in content packs, so it is always
   the current one: `state` (an `UpdateService.State`) and `state_changed`,
   `check_completed`, `progress_changed`, `check_for_updates()`,
-  `apply_pending_update()`, `retry_install()`, `restart_app()`,
-  `open_releases_page()`, `status_text()` and `history_text()`, for a game that
-  drives updates from its own screens.
+  `apply_pending_update()`, `retry_install()`, `is_busy()`, `cancel()`,
+  `restart_app()`, `open_releases_page()`, `status_text()` and
+  `history_text()`, for a game that drives updates from its own screens.
 - **`BuildInfo`**, an autoload whose code stays at the installed app build's
   version, so it has only the members that build had: `version_name`,
   `binary_version`, `content_version` (the mounted content pack's),

@@ -36,18 +36,13 @@ const MANIFEST_TIMEOUT := 30.0
 ## Cancel (cancel()) is the better answer than a larger number.
 ##
 ## Not 0 (unlimited): a peer that accepts and then goes silent would hang the
-## download forever. `timeout` does not bound that case well anyway -- it waits
-## on the peer rather than the clock in threaded mode. See issue #33.
+## download forever.
 const DOWNLOAD_TIMEOUT := 1800.0
 ## How long a check may run before it is given up on. Longer than
-## MANIFEST_TIMEOUT, so a request that times out ends the check first, and this
-## only ends a check that stopped partway through; see check_for_updates(). A
-## silent server is not one: HTTPRequest's timeout can hold the main thread until
-## the server answers (#33), and no timer fires meanwhile.
+## MANIFEST_TIMEOUT, so a request that times out, on a silent server too, ends
+## the check first, and this only ends a check that stopped partway through; see
+## check_for_updates().
 const CHECK_DEADLINE := MANIFEST_TIMEOUT + 15.0
-## How recently a transfer must have received bytes for cancel() to stop it
-## outright rather than leave it to end by itself; see there.
-const CANCEL_LIVE_MSEC := 1000
 const SUPPORTED_SCHEMA := 1
 ## Platforms with no automatic binary update: no CI export, no in-place swap.
 const MANUAL_BINARY_PLATFORMS: Array[String] = ["linux", "macos"]
@@ -94,13 +89,10 @@ var _check_serial := 0
 var _settled_serial := 0
 ## The latest check's deadline.
 var _check_deadline: SceneTreeTimer = null
-## Bumped by cancel(). A transfer remembers the value it started under, and one
-## that finds it changed when it ends was given up on: it returns without
-## touching anything, because a newer check or download may own the state.
+## Bumped by cancel(). Code awaiting a transfer remembers the value it started
+## under, and finding it changed when it resumes, returns without touching
+## anything: a newer check or download may own the state by then.
 var _generation := 0
-## The active request's byte count, and when it last moved (msec, -1 for never).
-var _moved_bytes := 0
-var _moved_msec := -1
 ## The file the current download is filling, until it is verified and in place.
 var _download_part := ""
 ## Set once an APK has been downloaded and its checksum verified, so a retry
@@ -113,17 +105,12 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _active_request == null:
-		return
-	var bytes := _active_request.get_downloaded_bytes()
-	if bytes != _moved_bytes:
-		_moved_bytes = bytes
-		_moved_msec = Time.get_ticks_msec()
 	# The manifest fetch goes through the same request helper, but a few hundred
 	# bytes of JSON is not worth reporting as a download -- and doing so would
 	# stomp the "Checking for updates…" status with a progress line.
-	if state == State.DOWNLOADING:
-		progress_changed.emit(bytes, _active_request.get_body_size())
+	if _active_request == null or state != State.DOWNLOADING:
+		return
+	progress_changed.emit(_active_request.get_downloaded_bytes(), _active_request.get_body_size())
 
 
 # ---------------------------------------------------------------------------
@@ -368,26 +355,18 @@ func is_busy() -> bool:
 ## download goes back to its offer, to be taken up again later. Does nothing
 ## when the updater is not busy.
 ##
-## A transfer still receiving bytes is cancelled outright. One that has gone
-## quiet is left to end by itself, and what it fetches is thrown away:
-## HTTPRequest.cancel_request() waits for the transfer's current read, which a
-## silent server never finishes, with the main thread held (#33). A stalled
-## transfer uses no bandwidth, so leaving it costs nothing.
+## The transfer stops at once, however slow or silent the server: requests are
+## not threaded (see _request()), so cancel_request() has no read to wait for.
 func cancel() -> State:
 	if not is_busy():
 		return state
 	_generation += 1
 	var http := _active_request
 	if http != null:
-		if _transfer_is_moving():
-			# request_completed never fires after this, so nothing awaiting it
-			# resumes; and the partial file goes with it.
-			http.cancel_request()
-			_teardown_request(http)
-		else:
-			# Kept until it ends, when _request() frees it and removes its file.
-			_active_request = null
-			set_process(false)
+		# request_completed never fires after this, so nothing awaiting it
+		# resumes; Godot removes the partial file.
+		http.cancel_request()
+		_teardown_request(http)
 	elif not _download_part.is_empty():
 		# Stopped after its transfer, as by a script error (#24): nothing will
 		# move these bytes into place now.
@@ -397,12 +376,6 @@ func cancel() -> State:
 	if state == State.CHECKING or pending_artifact.is_empty():
 		return _fail(tr("Update check cancelled."))
 	return _finish(State.BINARY_READY if pending_kind == "binary" else State.CONTENT_READY, "")
-
-
-## Whether the active request received bytes in the last CANCEL_LIVE_MSEC.
-func _transfer_is_moving() -> bool:
-	return _active_request != null and _moved_msec >= 0 \
-		and Time.get_ticks_msec() - _moved_msec < CANCEL_LIVE_MSEC
 
 
 ## Downloads and applies whatever the last check turned up.
@@ -540,9 +513,9 @@ func retry_install() -> State:
 ## leave the state alone.
 ##
 ## The bytes arrive in a staging file named for this attempt (_part_path()), and
-## only verified bytes reach dest. cancel() can leave a stalled transfer running
-## rather than wait on it, and that transfer must not write into, or on giving up
-## delete, the file a newer attempt is filling.
+## only verified bytes reach dest. A transfer whose end was already on its way
+## when cancel() stopped it removes its own file, which must never be the one a
+## newer attempt is filling.
 func _download_verified(url: String, dest: String) -> State:
 	if url.is_empty():
 		return _fail(tr("The manifest entry has no download URL."))
@@ -581,8 +554,8 @@ func _download_verified(url: String, dest: String) -> State:
 
 
 ## Where a download for [param dest] is staged: in the staging directory, named
-## for this attempt, and ending in .part so that a launch sweeps it once it has
-## sat idle, even on a binary from before this.
+## for this attempt, and ending in .part, which a launch's staging sweep removes
+## once it has sat idle.
 func _part_path(dest: String) -> String:
 	return BuildInfo.STAGING_DIR.path_join("%s.%d.part" % [dest.get_file(), _generation])
 
@@ -595,24 +568,37 @@ func _matches_pending_checksum(path: String) -> bool:
 	return FileAccess.get_sha256(path).to_lower() == expected
 
 
-## One HTTP GET. When [param download_to] is set the body is streamed to that
-## file instead of being kept in memory.
-func _request(url: String, download_to: String) -> Dictionary:
+## The request _request() makes, not yet started or in the tree.
+func _new_request(download_to: String) -> HTTPRequest:
 	var http := HTTPRequest.new()
 	# download_to is set only for artifacts, so it is also the signal for which
 	# budget applies -- the one call site that streams to a file is the one that
 	# needs the long one.
 	http.timeout = DOWNLOAD_TIMEOUT if not download_to.is_empty() else MANIFEST_TIMEOUT
-	http.use_threads = true
+	# Not threaded. A threaded request reads in blocking chunks, and
+	# cancel_request() -- the player's Cancel, the timeout, freeing the node on
+	# quit -- waits on the main thread for the read under way, which a slow or
+	# silent server can make a minute or forever (#25, #33). Unthreaded, the
+	# request is polled each frame and stops the moment it is told to. A large
+	# chunk keeps a frame's read from capping the download speed, and processing
+	# always keeps a game that pauses its tree from pausing a download.
+	http.use_threads = false
+	http.download_chunk_size = 1 << 20
+	http.process_mode = Node.PROCESS_MODE_ALWAYS
 	# GitHub serves release assets from a redirect to a signed CDN URL.
 	http.max_redirects = 8
 	if not download_to.is_empty():
 		http.download_file = download_to
+	return http
+
+
+## One HTTP GET. When [param download_to] is set the body is streamed to that
+## file instead of being kept in memory.
+func _request(url: String, download_to: String) -> Dictionary:
+	var http := _new_request(download_to)
 	add_child(http)
 
 	_active_request = http
-	_moved_bytes = 0
-	_moved_msec = -1
 	set_process(true)
 	var generation := _generation
 
@@ -633,7 +619,7 @@ func _request(url: String, download_to: String) -> Dictionary:
 	var result: Array = await http.request_completed
 	_teardown_request(http)
 	if generation != _generation:
-		# Left running by cancel(), and only now ended. Nobody wants it.
+		# Ended in the same frame as a cancel(). Nobody wants it.
 		if not download_to.is_empty():
 			DirAccess.remove_absolute(download_to)
 		return {"ok": false, "code": 0, "body": PackedByteArray(), "error": ""}

@@ -18,11 +18,13 @@ signal custom_button_pressed(label: String)
 ## configured, connecting this takes the Play action over entirely.
 signal play_requested()
 
-## Emitted when Back reaches the launcher's screen and none of the launcher's
-## own dialogs took it. A game that turns get_tree().quit_on_go_back off to
-## handle Back itself here -- a panel of its own, a scene around the launcher --
-## connects this rather than handling NOTIFICATION_WM_GO_BACK_REQUEST, which
-## also arrives for a Back that only closed one of the launcher's dialogs.
+## Emitted when Back reaches the launcher's screen and the launcher did not take
+## it to close one of its dialogs or, with the quit on, to cancel an update. A
+## game that turns get_tree().quit_on_go_back off to handle Back itself here --
+## a panel of its own, a scene around the launcher -- connects this rather than
+## handling NOTIFICATION_WM_GO_BACK_REQUEST, which also arrives for a Back the
+## launcher took. Such a game gets a Back during an update too, and can call
+## UpdateService.cancel() itself.
 signal back_requested()
 
 ## The game's own script for the launcher's screen, run before it builds
@@ -187,9 +189,10 @@ func _notification(what: int) -> void:
 		if _overlay.is_visible_in_tree():
 			_hide_overlay()
 			_hold_quit_for_this_back()
-		elif _update_button.is_visible_in_tree() and UpdateService.is_busy():
-			# A check or download under way is the innermost thing open: Back stops
-			# it, as the bar's Cancel does (#25), and the next Back quits.
+		elif get_tree().quit_on_go_back and _update_button.is_visible_in_tree() and UpdateService.is_busy():
+			# Back would quit: a check or download under way is stopped first, as the
+			# bar's Cancel does (#25), and the next Back quits. With the quit off,
+			# the game handles Back, and may have a panel of its own to close.
 			UpdateService.cancel()
 			_hold_quit_for_this_back()
 		else:
@@ -696,7 +699,8 @@ func _fit_overlay() -> void:
 	_overlay_scroll.update_minimum_size()
 
 
-## Keeps the Back that just closed a dialog from quitting as well. Godot asks
+## Keeps the Back that just closed a dialog, or cancelled an update, from
+## quitting as well. Godot asks
 ## quit_on_go_back in root's go_back_requested, emitted straight after this
 ## notification, so the game's setting is put back only after that, deferred.
 func _hold_quit_for_this_back() -> void:
