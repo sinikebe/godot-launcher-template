@@ -78,6 +78,13 @@ else
 	DOWNLOAD_BASE="https://github.com/${RELEASE_REPO}/releases/latest/download"
 fi
 
+# Said plainly, before the first write into it makes the failure look like
+# something else.
+if [[ ! -d "$RELEASE_DIR" ]]; then
+	echo "::error::${RELEASE_DIR} does not exist, so there is nothing to publish." >&2
+	exit 1
+fi
+
 # The launcher's licence, beside the apps it is built into. MIT asks that the
 # notice ship with substantial portions of the software, and no build carries
 # it: the export presets include only what Godot imports as a resource. Copied
@@ -86,11 +93,11 @@ fi
 # release.yml so that a game's releases carry it after its next launcher sync,
 # without copying a workflow by hand.
 LICENCE_ASSET="LAUNCHER-LICENSE.txt"
-if [[ -f addons/launcher/LICENSE ]]; then
+if [[ -f addons/launcher/LICENSE && -s addons/launcher/LICENSE ]]; then
 	cp addons/launcher/LICENSE "$RELEASE_DIR/$LICENCE_ASSET"
 else
 	LICENCE_ASSET=""
-	echo "::warning::addons/launcher/LICENSE is missing, so this release does not carry the launcher's licence. Restore it from the launcher template."
+	echo "::warning::addons/launcher/LICENSE is missing or empty, so this release does not carry the launcher's licence. Restore it from the launcher template."
 fi
 
 # Checksums for anyone verifying a manual download. Exclude the file itself so
