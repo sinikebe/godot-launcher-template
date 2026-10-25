@@ -78,6 +78,21 @@ else
 	DOWNLOAD_BASE="https://github.com/${RELEASE_REPO}/releases/latest/download"
 fi
 
+# The launcher's licence, beside the apps it is built into. MIT asks that the
+# notice ship with substantial portions of the software, and no build carries
+# it: the export presets include only what Godot imports as a resource. Copied
+# from addons/launcher/, the code that is in the build -- not the root LICENSE,
+# which is the game's own after new_game.sh, or gone. Done here rather than in
+# release.yml so that a game's releases carry it after its next launcher sync,
+# without copying a workflow by hand.
+LICENCE_ASSET="LAUNCHER-LICENSE.txt"
+if [[ -f addons/launcher/LICENSE ]]; then
+	cp addons/launcher/LICENSE "$RELEASE_DIR/$LICENCE_ASSET"
+else
+	LICENCE_ASSET=""
+	echo "::warning::addons/launcher/LICENSE is missing, so this release does not carry the launcher's licence. Restore it from the launcher template."
+fi
+
 # Checksums for anyone verifying a manual download. Exclude the file itself so
 # reruns stay idempotent.
 (
@@ -141,7 +156,11 @@ with open('build/notes/changes.json', encoding='utf-8') as fh:
 		echo "> See [Signing](https://github.com/${DOCS_REPO}/blob/main/docs/UPDATES.md#signing)."
 		echo ""
 	fi
-	echo "<sub>\`manifest.json\` is what the updater reads. \`SHA256SUMS\` covers every asset here.</sub>"
+	if [[ -n "$LICENCE_ASSET" ]]; then
+		echo "<sub>\`manifest.json\` is what the updater reads. \`SHA256SUMS\` covers every asset here. \`${LICENCE_ASSET}\` is the licence of the launcher built into these apps.</sub>"
+	else
+		echo "<sub>\`manifest.json\` is what the updater reads. \`SHA256SUMS\` covers every asset here.</sub>"
+	fi
 } > "$NOTES"
 
 if gh release view "$TAG" >/dev/null 2>&1; then

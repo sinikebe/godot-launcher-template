@@ -90,7 +90,8 @@ Your push already started a build. Open the **Actions** tab.
 
 > **You should see** a *Release* run go green in a few minutes, and a new
 > release appear under **Releases** containing `deep-cavern.apk`,
-> `DeepCavern.exe`, two `.pck` files, `manifest.json` and `SHA256SUMS`.
+> `DeepCavern.exe`, two `.pck` files, `manifest.json`, `SHA256SUMS` and
+> `LAUNCHER-LICENSE.txt`, the launcher's licence.
 
 If it failed, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 

@@ -205,6 +205,32 @@ class PublishRelease(PublishBase):
         self.assertEqual((other / "SHA256SUMS").read_text(encoding="utf-8").split()[1], "a.bin")
         self.assertIn("out/a.bin", self.gh_calls()[1])
 
+    # -- the launcher's licence ---------------------------------------------
+    def test_the_launchers_licence_ships_beside_the_apps(self):
+        """#29: MIT's notice reaches no build, so the release carries it."""
+        launcher = self.root / "addons" / "launcher"
+        launcher.mkdir(parents=True)
+        (launcher / "LICENSE").write_bytes(b"MIT License\n\nthe launcher's terms\n")
+        # The game's own after new_game.sh; never the one to ship as the launcher's.
+        (self.root / "LICENSE").write_bytes(b"All rights reserved, the game's own terms\n")
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        shipped = self.release / "LAUNCHER-LICENSE.txt"
+        self.assertEqual(shipped.read_bytes(), b"MIT License\n\nthe launcher's terms\n")
+        self.assertIn("build/release/LAUNCHER-LICENSE.txt", self.gh_calls()[1])
+        sums = (self.release / "SHA256SUMS").read_text(encoding="utf-8")
+        self.assertIn(hashlib.sha256(shipped.read_bytes()).hexdigest() + "  LAUNCHER-LICENSE.txt", sums)
+        self.assertIn("`LAUNCHER-LICENSE.txt` is the licence of the launcher", self.notes_text())
+        self.assertNotIn("::warning::", result.stdout)
+
+    def test_without_the_launchers_licence_the_release_still_goes_out_and_says_so(self):
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning::addons/launcher/LICENSE is missing", result.stdout)
+        self.assertFalse((self.release / "LAUNCHER-LICENSE.txt").exists())
+        self.assertNotIn("LAUNCHER-LICENSE.txt", self.notes_text())
+        self.assertIn("Published v0.1.0+3", result.stdout)
+
     # -- the notes --------------------------------------------------------
     def test_notes_say_what_was_built(self):
         self.publish()
