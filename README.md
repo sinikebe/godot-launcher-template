@@ -797,6 +797,11 @@ create.
 MIT asks that the notice ship with substantial portions of the software, and a
 built `.pck` or APK contains none of these files — the export presets ship an
 empty `include_filter`, which includes only what Godot imports as a resource,
-and a licence is not one. If you distribute builds, put the attribution
-somewhere a player can reach: a credits screen, or a licence file beside the
-executable.
+and a licence is not one. So every release carries it beside the apps:
+`ci/publish_release.sh` copies `addons/launcher/LICENSE` into the release as
+`LAUNCHER-LICENSE.txt`, and the release notes point at it. A game gets this with
+its next launcher sync, with no change to its workflows. It covers the launcher,
+not your game, and only the builds that go out through Releases. If you hand
+builds out any other way, or want players to find it inside the game, put the
+attribution somewhere they can reach: a credits screen, wired up through
+`extra_buttons`, is the usual place.

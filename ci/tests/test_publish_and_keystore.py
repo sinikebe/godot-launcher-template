@@ -26,6 +26,7 @@ import stat
 import subprocess
 import unittest
 
+from test_release_dry_run import IS_TEMPLATE
 from test_release_scripts import Sandbox
 
 FAKE_GH = """#!/usr/bin/env bash
@@ -60,6 +61,23 @@ ASSETS = {
     "content-desktop.pck": b"desktop pack",
     "manifest.json": b'{"schema": 1}',
 }
+
+
+REPO = pathlib.Path(__file__).resolve().parent.parent.parent
+
+
+class TheLicenceThatShips(unittest.TestCase):
+    """#29: publish_release.sh ships addons/launcher/LICENSE, and without it a release only
+    warns. A deletion here would reach every game on its next sync, so it fails here.
+    Only here: a game that deleted its copy is told so by its release, and this test
+    must not start failing its pull requests (ci/ is synced into games)."""
+
+    @unittest.skipUnless(IS_TEMPLATE, "a game's copy is its own to keep; only the template's is held to this")
+    def test_the_launchers_licence_is_there_to_ship(self):
+        shipped = REPO / "addons" / "launcher" / "LICENSE"
+        self.assertTrue(shipped.is_file() and shipped.stat().st_size > 0,
+                        "addons/launcher/LICENSE is what every release carries; restore it")
+        self.assertEqual(shipped.read_bytes(), (REPO / "ci" / "LICENSE").read_bytes())
 
 
 class PublishBase(Sandbox):
@@ -204,6 +222,48 @@ class PublishRelease(PublishBase):
         self.publish(RELEASE_DIR="out")
         self.assertEqual((other / "SHA256SUMS").read_text(encoding="utf-8").split()[1], "a.bin")
         self.assertIn("out/a.bin", self.gh_calls()[1])
+
+    # -- the launcher's licence ---------------------------------------------
+    def test_the_launchers_licence_ships_beside_the_apps(self):
+        """#29: MIT's notice reaches no build, so the release carries it."""
+        launcher = self.root / "addons" / "launcher"
+        launcher.mkdir(parents=True)
+        (launcher / "LICENSE").write_bytes(b"MIT License\n\nthe launcher's terms\n")
+        # The game's own after new_game.sh; never the one to ship as the launcher's.
+        (self.root / "LICENSE").write_bytes(b"All rights reserved, the game's own terms\n")
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        shipped = self.release / "LAUNCHER-LICENSE.txt"
+        self.assertEqual(shipped.read_bytes(), b"MIT License\n\nthe launcher's terms\n")
+        self.assertIn("build/release/LAUNCHER-LICENSE.txt", self.gh_calls()[1])
+        sums = (self.release / "SHA256SUMS").read_text(encoding="utf-8")
+        self.assertIn(hashlib.sha256(shipped.read_bytes()).hexdigest() + "  LAUNCHER-LICENSE.txt", sums)
+        self.assertIn("`LAUNCHER-LICENSE.txt` is the licence of the launcher", self.notes_text())
+        self.assertNotIn("::warning::", result.stdout)
+
+    def test_the_launchers_licence_ships_on_every_publish_path(self):
+        launcher = self.root / "addons" / "launcher"
+        launcher.mkdir(parents=True)
+        (launcher / "LICENSE").write_bytes(b"MIT License\n")
+        for env, verb in (({}, "create"), ({"TAG": "branch-dev", "RELEASE_BRANCH": "dev"}, "create"),
+                          ({"RELEASE_REPO": "me/game-releases"}, "create"),
+                          ({"FAKE_GH_EXISTS": "1"}, "upload"),
+                          ({"FAKE_GH_EXISTS": "1", "TAG": "branch-dev", "RELEASE_BRANCH": "dev"}, "upload")):
+            with self.subTest(env=env):
+                self.gh_log.unlink(missing_ok=True)
+                result = self.publish(**env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                call = self.gh_calls()[1]
+                self.assertTrue(call.startswith("release %s " % verb), call)
+                self.assertIn("build/release/LAUNCHER-LICENSE.txt", call)
+
+    def test_without_the_launchers_licence_the_release_still_goes_out_and_says_so(self):
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning::addons/launcher/LICENSE is missing", result.stdout)
+        self.assertFalse((self.release / "LAUNCHER-LICENSE.txt").exists())
+        self.assertNotIn("LAUNCHER-LICENSE.txt", self.notes_text())
+        self.assertIn("Published v0.1.0+3", result.stdout)
 
     # -- the notes --------------------------------------------------------
     def test_notes_say_what_was_built(self):
