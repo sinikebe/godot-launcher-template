@@ -42,7 +42,9 @@
 # hours; PLAY_SCENE_TIMEOUT (seconds, default below) ends it. And Godot reads a
 # positional argument as a scene only when it ends in .tscn, .scn, .escn or .res:
 # anything else is ignored and the main scene booted instead, exit status 0, so a
-# play_scene with the wrong extension is refused rather than passed unrun.
+# play_scene with the wrong extension is refused rather than passed unrun. A uid:// is
+# not checked for what it resolves to: one that points at a script or an image would
+# boot the main scene the same way, and is left to the inspector's *.tscn filter.
 #
 # Needs the project imported first (ci.yml's "Import project" step runs before it)
 # and Godot at GODOT, which defaults to where ci/install_godot.sh puts it. Run in a
@@ -107,8 +109,11 @@ if command -v timeout >/dev/null 2>&1; then
 	guard=(timeout --kill-after=10 "$RUN_TIMEOUT")
 fi
 status=0
-out="$(HOME="$scratch" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" \
-	${guard[@]+"${guard[@]}"} "$GODOT" --headless --path . "$SCENE" --quit-after "$QUIT_AFTER" 2>&1)" || status=$?
+# Into a file, not a $(...) pipe: a process the scene spawns inherits the pipe, and the shell
+# would wait for it to close it, however long that process lives. timeout cannot help then.
+HOME="$scratch" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" \
+	${guard[@]+"${guard[@]}"} "$GODOT" --headless --path . "$SCENE" --quit-after "$QUIT_AFTER" >"$scratch/out" 2>&1 || status=$?
+out="$(cat "$scratch/out")"
 printf '%s\n' "$out"
 
 if [[ "$status" -eq 124 || "$status" -eq 137 ]]; then
@@ -120,10 +125,11 @@ if [[ "$status" -ne 0 ]]; then
 	exit 1
 fi
 # Not counted: the report Godot's editor and debug builds print as the process exits, of
-# objects and RIDs the scene left behind. It says nothing a player sees, and a game that
-# orphans a Node with a script, or keeps a server RID, would fail on it while running fine.
+# objects, RIDs and allocator pages the scene left behind. It says nothing a player sees, and
+# a game that orphans a Node with a script or a MeshInstance3D, or keeps a server RID, would
+# fail on it while running fine.
 logged="$(grep -E '^((SCRIPT|SHADER) )?ERROR:' <<<"$out" || true)"
-errors="$(grep -vE '^ERROR: ([0-9]+ resources still in use at exit|[0-9]+ RID allocations of type .* were leaked at exit)' <<<"$logged" || true)"
+errors="$(grep -vE '^ERROR: ([0-9]+ resources still in use at exit|[0-9]+ RID allocations of type .* were leaked at exit|Pages in use exist at exit in PagedAllocator)' <<<"$logged" || true)"
 if [[ -n "$errors" ]]; then
 	echo "::error::${SCENE} logged errors when it ran headless, listed above. See docs/TROUBLESHOOTING.md, \"The CI check on Play's scene fails\"." >&2
 	exit 1

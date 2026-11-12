@@ -18,6 +18,7 @@ from __future__ import annotations
 import pathlib
 import shutil
 import subprocess
+import time
 import unittest
 
 from test_release_dry_run import IS_TEMPLATE
@@ -37,6 +38,16 @@ sleep "${FAKE_GODOT_SLEEP:-0}"
 cat "$FAKE_GODOT_OUTPUT" 2>/dev/null
 cat "$FAKE_GODOT_STDERR" >&2 2>/dev/null
 exit "${FAKE_GODOT_EXIT:-0}"
+"""
+
+# Records how it was called, then either reports a status of its own (a scene that was ended) or runs the
+# command it wraps. The real one is not used for these: a test would need a scene that ignores SIGTERM and
+# wait out --kill-after.
+FAKE_TIMEOUT = """#!/usr/bin/env bash
+echo "timeout: $*" >> "$FAKE_GODOT_LOG"
+if [[ -n "${FAKE_TIMEOUT_STATUS:-}" ]]; then exit "$FAKE_TIMEOUT_STATUS"; fi
+shift 2
+exec "$@"
 """
 
 CONFIG = 'game_title = "Deep Cavern"\nplay_scene = "res://game/play.tscn"\nupdate_repo = "you/deep-cavern"\n'
@@ -167,7 +178,8 @@ class CheckPlayScene(Sandbox):
 
     def test_warnings_and_the_games_own_prints_do_not_fail_it(self):
         output = ("Godot Engine v4.7.stable.official\nWARNING: something deprecated\nloading save data\n"
-                  "an ERROR: in the middle of a line, or the word SCRIPT ERROR quoted by the game\n")
+                  "an ERROR: in the middle of a line, or the word SCRIPT ERROR quoted by the game\n"
+                  "error: lower case is the game's own\nERRORS: 0\n  ERROR: indented, so a continuation of a message\n")
         result = self.check(output)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -180,6 +192,20 @@ class CheckPlayScene(Sandbox):
         result = self.check("", stderr=report)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Not counted: the ERROR lines above", result.stdout)
+
+    def test_the_allocator_pages_an_orphaned_3d_instance_leaves_are_part_of_the_exit_report(self):
+        report = ("ERROR: Pages in use exist at exit in PagedAllocator: N20RasterizerSceneDummy21GeometryInstanceDummyE\n"
+                  "   at: ~PagedAllocator (./core/templates/paged_allocator.h:170)\n")
+        result = self.check("", stderr=report)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_only_the_shape_of_the_exit_report_is_left_out(self):
+        for line in ("SCRIPT ERROR: 1 resources still in use at exit (run with --verbose for details).",
+                     "ERROR: Could not save the game at exit.",
+                     "ERROR: the game left 3 resources still in use at exit",
+                     "ERROR: Pages in use exist at exit in SomethingElse"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check("", stderr=line + "\n").returncode, 1)
 
     def test_nothing_is_said_about_uncounted_lines_when_there_were_none(self):
         self.assertNotIn("Not counted", self.check("Godot Engine v4.7.stable\n").stdout)
@@ -196,7 +222,8 @@ class CheckPlayScene(Sandbox):
     def test_godot_only_runs_what_ends_like_a_scene_so_anything_else_is_refused(self):
         """Godot ignores any other argument and boots the main scene, exit 0: the check would pass unrun."""
         for value in ("res://game/play", "res://game/play.gd", "res://game/play.png", "res://game/play.TSCN",
-                      "res://game/play.tscn.bak", "res://game/"):
+                      "res://game/play.tscn.bak", "res://game/", "res://game/play.tres", "res://game/play-tscn",
+                      "res://game/play.tscn?x=1", "res://game/play.tscn#a"):
             with self.subTest(value=value):
                 self.set_config('play_scene = "%s"\n' % value)
                 result = self.check()
@@ -216,6 +243,60 @@ class CheckPlayScene(Sandbox):
         result = self.check("", FAKE_GODOT_SLEEP="30", PLAY_SCENE_TIMEOUT="1")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("was still running after 1 seconds", result.stderr)
+
+
+    # -- the guard against a scene that never ends --------------------------
+    def install_fake_timeout(self):
+        fake = self.bin / "timeout"
+        fake.write_text(FAKE_TIMEOUT, encoding="utf-8")
+        fake.chmod(0o755)
+
+    def test_godot_runs_under_timeout_for_two_minutes_and_is_killed_ten_seconds_after_that(self):
+        self.install_fake_timeout()
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("timeout: --kill-after=10 120 %s --headless --path . res://game/play.tscn --quit-after 120" % self.godot,
+                      self.calls())
+
+    def test_the_limit_can_be_set_from_the_workflow(self):
+        self.install_fake_timeout()
+        self.assertEqual(self.check(PLAY_SCENE_TIMEOUT="45").returncode, 0)
+        self.assertIn("timeout: --kill-after=10 45 %s --headless --path . res://game/play.tscn --quit-after 120" % self.godot,
+                      self.calls())
+
+    def test_a_scene_that_ignored_the_first_signal_and_was_killed_fails_the_same_way(self):
+        """timeout reports 124 when the scene stopped, and 137 when it had to be killed."""
+        self.install_fake_timeout()
+        for status in ("124", "137"):
+            with self.subTest(status=status):
+                result = self.check(FAKE_TIMEOUT_STATUS=status)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("was still running after 120 seconds", result.stderr)
+
+    def test_a_scene_that_ends_with_a_status_timeout_does_not_use_is_just_a_failed_run(self):
+        self.install_fake_timeout()
+        result = self.check(FAKE_TIMEOUT_STATUS="125")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("could not be run: Godot exited with status 125", result.stderr)
+
+    def test_a_runner_without_timeout_still_boots_the_scene(self):
+        path = pathlib.Path(self._dir.name) / "nopath"
+        path.mkdir()
+        for tool in ("bash", "sed", "grep", "head", "mktemp", "rm", "cat", "dirname", "sleep", "env"):
+            found = shutil.which(tool)
+            if found:
+                (path / tool).symlink_to(found)
+        result = self.check(PATH=str(self.bin) + ":" + str(path))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("args: --headless --path . res://game/play.tscn --quit-after 120", self.calls())
+
+    def test_a_process_the_scene_leaves_running_does_not_hold_the_check_open(self):
+        """A child inherits Godot's output; read through a pipe, the check would wait for it to exit."""
+        self.godot.write_text(FAKE_GODOT.replace('exit "${FAKE_GODOT_EXIT:-0}"', '(sleep 8 &) ; exit 0'), encoding="utf-8")
+        started = time.monotonic()
+        result = self.check("Godot Engine v4.7.stable\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertLess(time.monotonic() - started, 5, "the check waited for a process the scene left behind")
 
     # -- how it runs --------------------------------------------------------
     def test_godot_runs_in_a_scratch_home_that_is_removed_afterwards(self):
