@@ -162,7 +162,12 @@ Fix that, and push. The usual causes are a node path that does not exist (a null
 `@onready`), a `preload` of a file that is not there, and a typed variable given
 a value that does not fit. A `push_error()` of your own counts as an error too.
 If the line reads `Godot exited with status 1` instead, the scene could not be
-loaded at all: check the path in `play_scene`.
+loaded at all: check the path in `play_scene`. A path that does not end in
+`.tscn`, `.scn`, `.escn` or `.res` is refused outright, because Godot would
+quietly boot the launcher in its place and the check would pass without ever
+running your scene. And a scene that never lets go of the main loop, a `while`
+that does not end in `_ready()`, is stopped after two minutes
+(`PLAY_SCENE_TIMEOUT`, in seconds) and fails.
 
 It runs the scene directly, so you can reproduce it on your machine:
 
@@ -174,6 +179,25 @@ Godot exits 0 even when that prints an error, so read the output rather than the
 exit status. The check does not see an error that only happens later than about a
 second in, and it does nothing while `play_scene` is empty: a game that takes Play
 over with `play_requested` has no scene for it to boot.
+
+**It runs headless, with no window, no display and no save data**, so a few
+things that are fine on a player's device log an error here. They are real in the
+sense that the code does run into them, and a guard fixes each:
+
+- Reading a save file that does not exist yet. `load()` of a missing `user://`
+  file logs an error, and so does `JSON.parse_string()` of the empty string that
+  `FileAccess.get_file_as_string()` quietly gives back for one. Check
+  `FileAccess.file_exists()` first.
+- `DisplayServer.clipboard_get()` and a viewport's `get_texture().get_image()`,
+  which a headless display cannot serve.
+- Dividing by `DisplayServer.screen_get_size()`, which is `(0, 0)` here.
+- An addon that calls `push_error()` where it only means to warn. That one is the
+  addon's to fix; until it is, the check cannot tell it from yours.
+
+`DisplayServer.get_name() == "headless"` tells your code which it is in. Lines
+Godot prints as the process exits, about objects and RIDs a scene left behind,
+are not counted: no player sees them. A message that starts partway along a line,
+because something printed text without a newline first, is not seen either.
 
 If your `ci.yml` has no such step, copy it from the template's. The sync keeps
 `ci/check_play_scene.sh` current but cannot write workflows, and reports
