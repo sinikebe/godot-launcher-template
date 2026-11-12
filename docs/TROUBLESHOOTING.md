@@ -146,6 +146,81 @@ If it says instead that the project "doesn't have an `export_presets.cfg` file
 at its root", the file never reached the repository. Commit it, and check that
 `.gitignore` does not exclude it.
 
+### The CI check on Play's scene fails
+
+The **Check that Play's scene runs** step in `ci.yml` boots the scene
+`play_scene` names in `launcher_config.tres`, headless, for about a second, and
+fails when the scene logs an error. The log above the red line is the scene's own
+output, with the error and the script line it came from:
+
+```
+SCRIPT ERROR: Invalid assignment of property or key 'text' … on a base object of type 'null instance'.
+          at: _ready (res://game/play.gd:4)
+```
+
+Fix that, and push. The usual causes are a node path that does not exist (a null
+`@onready`), a `preload` of a file that is not there, and a typed variable given
+a value that does not fit. A `push_error()` of your own counts as an error too.
+If the line reads `Godot exited with status 1` instead, the scene could not be
+loaded at all: check the path in `play_scene`. A path that does not end in
+`.tscn`, `.scn`, `.escn` or `.res` is refused outright, because Godot would
+quietly boot the launcher in its place and the check would pass without ever
+running your scene. And a scene that never lets go of the main loop, a `while`
+that does not end in `_ready()`, is stopped after two minutes and fails
+(`PLAY_SCENE_TIMEOUT`, in seconds, under `env:` on the step, changes the limit).
+
+It runs the scene directly, so you can reproduce it on your machine:
+
+```bash
+~/godot/godot --headless --path . res://game/play.tscn --quit-after 120
+```
+
+Godot exits 0 even when that prints an error, so read the output rather than the
+exit status. The check runs the one scene Play opens, so a level that scene opens
+later is not run, and it does not see an error that only happens later than about
+a second in. It does nothing while `play_scene` is empty: a game that takes Play
+over with `play_requested` has no scene for it to boot.
+
+**It runs headless, with no window, no display and no save data**, so a few
+things that are fine on a player's device log an error here. They are real in the
+sense that the code does run into them, and a guard fixes each:
+
+- Reading a save file that does not exist yet. `load()`, `Image.load_from_file()`
+  and `DirAccess.get_files_at()` of a missing `user://` path log an error, and so
+  does `JSON.parse_string()` of the empty string that
+  `FileAccess.get_file_as_string()` quietly gives back for one. Check
+  `FileAccess.file_exists()` first.
+- `DisplayServer.clipboard_get()` and `clipboard_set()`, and a viewport's
+  `get_texture().get_image()`, which a headless display cannot serve.
+- Dividing integers by `DisplayServer.screen_get_size()`, which is `(0, 0)` here:
+  `size.x / size.y` logs a division by zero, where a float division quietly gives
+  `inf` or `nan`.
+- `Engine.get_singleton()` for a platform plugin that is not there, an Android one
+  on this Linux machine. Ask `Engine.has_singleton()` first.
+- A GDExtension with no library for Linux, one built only for Android or Windows.
+  Godot logs `No GDExtension library found for current OS and architecture
+  (linux.x86_64)` as it starts, before your scene, so every scene fails. The
+  earlier boot in `ci.yml` prints it too, but only its exit status counts there.
+  Ship a Linux build of the library and list it under `linux.x86_64` in the
+  extension's `.gdextension` file.
+- A `print("ERROR: ...")` or `printerr("ERROR: ...")` of your own, which is read as
+  an error whatever it meant. `push_warning()` and a message that starts any
+  other way are not.
+- An addon that calls `push_error()` where it only means to warn. That one is the
+  addon's to fix; until it is, the check cannot tell it from yours.
+
+`DisplayServer.get_name() == "headless"` tells your code which it is in. Lines
+Godot prints as the process exits, about objects and RIDs a scene left behind,
+are not counted: no player sees them. A message that starts partway along a line,
+because something printed text without a newline first, is not seen either, and
+neither is code behind `await RenderingServer.frame_post_draw`, which never
+completes headless.
+
+If your `ci.yml` has no such step, copy it from the template's. The sync keeps
+`ci/check_play_scene.sh` current but cannot write workflows, and reports
+`ci.yml` as having drifted until you do
+([The sync says my workflows have drifted](#the-sync-says-my-workflows-have-drifted)).
+
 ### The Release workflow fails at "Check the release repository"
 
 `RELEASE_REPO` names a separate releases repository, and something about it

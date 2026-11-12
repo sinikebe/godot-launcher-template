@@ -133,6 +133,15 @@ jobs:
           HOME="$scratch" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_CACHE_HOME="$scratch/cache" \
             ~/godot/godot --headless --path . --quit-after 120
 
+      - name: Check that Play's scene runs
+        # The boot above runs the launcher. A game's own scenes are reached only
+        # through Play, so a runtime error in one (a null @onready, a bad
+        # preload) used to pass here and reach a player. This boots play_scene
+        # and fails on what it logs. Nothing to do while play_scene is empty.
+        # See ci/check_play_scene.sh, which a launcher sync keeps current: only
+        # this step has to be copied across by hand.
+        run: bash ci/check_play_scene.sh
+
       - name: Run the launcher's GDScript tests
         # The changelog formatter and the staged-pack mount guards decide what a
         # player is shown and which content they run, and the boot check above

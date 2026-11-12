@@ -336,6 +336,23 @@ default). Set it to `0` for a straight cut. A game that takes Play over runs its
 own transition instead. An app build from before this setting existed fades
 for 0.3 s whatever you set.
 
+CI runs `play_scene` too, so a mistake in it is found before a player presses
+Play. The **Check that Play's scene runs** step in `ci.yml` runs
+`ci/check_play_scene.sh`, which starts the scene headless for about a second and
+fails the pull request when it logs an error: a null `@onready`, a bad
+`preload`, a type that does not fit, or a `push_error()` of your own. Godot
+exits 0 after all of these, so the script reads what the scene printed. It does
+nothing while `play_scene` is empty, including for a game that takes Play over
+with `play_requested`, so that game's scenes are still unchecked. An error
+behind a long timer is not seen either, and because it runs headless, code that
+reads a save file that does not exist yet, or asks for the clipboard, logs
+errors here that a device would not: the
+[troubleshooting entry](docs/TROUBLESHOOTING.md#the-ci-check-on-plays-scene-fails)
+lists them. The script arrives with every sync, but
+the step does not, because the sync cannot write `.github/workflows/`: copy the
+step across from the template's `ci.yml` once
+([how](#keeping-games-up-to-date-with-the-template)).
+
 To come back to the launcher from your game, for a Leave or Main menu button,
 change scene to it:
 

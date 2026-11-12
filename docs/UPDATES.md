@@ -519,9 +519,9 @@ they run scripts just pulled from the template, before you have reviewed them.
 
 The machine needs Linux on x86_64, bash 4, git, Python 3, curl, unzip and `gh`. The
 workflows install Java, the Android SDK and Godot themselves, and keep Godot in
-the runner's home between jobs. The boot check and the GDScript tests run with
-a scratch home, so `user://` starts empty on every run, as it does on GitHub's
-machines. `shellcheck` is installed with `sudo apt-get` only when it is missing.
+the runner's home between jobs. The boot check, the check on Play's scene and the
+GDScript tests run with a scratch home, so `user://` starts empty on every run,
+as it does on GitHub's machines. `shellcheck` is installed with `sudo apt-get` only when it is missing.
 
 A pull request's code runs on `CI_RUNNER` before anyone reviews it, and
 anything it leaves on the machine runs in the next job there: in the Godot
