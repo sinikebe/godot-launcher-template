@@ -146,6 +146,40 @@ If it says instead that the project "doesn't have an `export_presets.cfg` file
 at its root", the file never reached the repository. Commit it, and check that
 `.gitignore` does not exclude it.
 
+### The CI check on Play's scene fails
+
+The **Check that Play's scene runs** step in `ci.yml` boots the scene
+`play_scene` names in `launcher_config.tres`, headless, for about a second, and
+fails when the scene logs an error. The log above the red line is the scene's own
+output, with the error and the script line it came from:
+
+```
+SCRIPT ERROR: Invalid assignment of property or key 'text' … on a base object of type 'null instance'.
+          at: _ready (res://game/play.gd:4)
+```
+
+Fix that, and push. The usual causes are a node path that does not exist (a null
+`@onready`), a `preload` of a file that is not there, and a typed variable given
+a value that does not fit. A `push_error()` of your own counts as an error too.
+If the line reads `Godot exited with status 1` instead, the scene could not be
+loaded at all: check the path in `play_scene`.
+
+It runs the scene directly, so you can reproduce it on your machine:
+
+```bash
+~/godot/godot --headless --path . res://game/play.tscn --quit-after 120
+```
+
+Godot exits 0 even when that prints an error, so read the output rather than the
+exit status. The check does not see an error that only happens later than about a
+second in, and it does nothing while `play_scene` is empty: a game that takes Play
+over with `play_requested` has no scene for it to boot.
+
+If your `ci.yml` has no such step, copy it from the template's. The sync keeps
+`ci/check_play_scene.sh` current but cannot write workflows, and reports
+`ci.yml` as having drifted until you do
+([The sync says my workflows have drifted](#the-sync-says-my-workflows-have-drifted)).
+
 ### The Release workflow fails at "Check the release repository"
 
 `RELEASE_REPO` names a separate releases repository, and something about it

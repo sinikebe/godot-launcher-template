@@ -203,7 +203,11 @@ setup. Afterwards it will not delete it for you — `rm LICENSE` yourself.
 In `launcher_config.tres`, set **`play_scene`** to your first scene. Until then
 Play explains itself rather than failing silently. Play fades through
 `background_color` into it; `play_fade_seconds` sets how long, and `0` cuts
-straight to it.
+straight to it. CI boots that scene on every pull request and fails when it
+logs an error, so one that breaks in `_ready()` is caught before a player
+presses Play. Copy the **Check that Play's scene runs** step from the
+template's `ci.yml` into yours to get it; see [The CI check on Play's scene
+fails](TROUBLESHOOTING.md#the-ci-check-on-plays-scene-fails).
 
 For more control, leave `play_scene` empty and connect the launcher's
 `play_requested` signal, then do whatever you like instead. Connect it from
